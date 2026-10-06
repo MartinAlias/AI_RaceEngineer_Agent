@@ -88,6 +88,23 @@ def test_outcome_flow(tmp_path):
     assert result.exit_code == 1 and "No changes waiting" in result.output
 
 
+def test_engineer_offline_queues_and_advises(tmp_path, monkeypatch):
+    from race_engineer import offline
+    monkeypatch.setattr(offline, "is_online", lambda timeout=3.0: False)
+    db_path = tmp_path / "cli4.db"
+    run(db_path, "bike", "add", "R6", "--set", "fork.rebound=10")
+    run(db_path, "track", "add", "Brno")
+    run(db_path, "session", "start", "--track", "Brno")
+    run(db_path, "feedback", "front feels slippery mid corner")
+
+    out = run(db_path, "engineer")
+    assert "No connection" in out and "Feedback #1 is queued" in out
+    assert "fork.rebound 10 -> 8 (-2)" in out  # offline advice shown
+
+    out = run(db_path, "analyze-pending")
+    assert "Feedback #1 is queued" in out  # still offline: stays queued
+
+
 def test_errors_are_reported_without_traceback(tmp_path):
     result = runner.invoke(app, ["--db", str(tmp_path / "e.db"), "lap", "add", "1:42.3"])
     assert result.exit_code == 1

@@ -197,6 +197,23 @@ MIGRATIONS: list[str] = [
     SELECT o.verdict || ' ' || coalesce(o.notes, ''), 'outcome', o.id, c.bike_id, coalesce(o.session_id, c.session_id)
     FROM outcome o JOIN change c ON c.id = o.change_id;
     """,
+    # v3: engineer conversations and the offline queue.
+    """
+    CREATE TABLE pending_analysis (
+        feedback_id INTEGER PRIMARY KEY REFERENCES feedback(id),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE engineer_conversation (
+        id          INTEGER PRIMARY KEY,
+        bike_id     INTEGER NOT NULL REFERENCES bike(id),
+        session_id  INTEGER REFERENCES session(id),
+        feedback_id INTEGER REFERENCES feedback(id),
+        model       TEXT NOT NULL,
+        messages    TEXT NOT NULL,  -- JSON transcript, for review
+        started_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    """,
 ]
 
 

@@ -8,11 +8,14 @@ from typing import List, Optional
 
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.markup import escape
+from rich.panel import Panel
 from rich.table import Table
 
-from . import advisor, db, guide, history, repo, setup_diff, timing
-from .models import Setup
+from . import advisor, db, guide, history, offline, repo, setup_diff, timing
+from .agent.engineer import Engineer, EngineerConfig, EngineerOffline, EngineerUnavailable, make_client
+from .models import Feedback, Setup
 
 app = typer.Typer(help="Virtual race engineer: log sessions, setups, laps and rider feedback.", no_args_is_help=True)
 bike_app = typer.Typer(help="Add, list and select bikes.", no_args_is_help=True)
@@ -579,8 +582,10 @@ def advise(
             if not items:
                 raise repo.RepoError("No feedback in this session yet. Add some with `re feedback \"...\"`.")
             feedback_id = items[-1].id
-        advice = advisor.advise(conn, feedback_id)
+        _print_advice(advisor.advise(conn, feedback_id))
 
+
+def _print_advice(advice: advisor.Advice) -> None:
     console.print(f"[bold]Feedback #{advice.feedback.id}:[/bold] \"{escape(advice.feedback.text)}\"")
     if not advice.symptoms:
         console.print("No matching symptom in the guide. Try more detail (front/rear, entry/mid/exit), "
@@ -618,6 +623,118 @@ def advise(
         console.print("\n[bold]Similar notes from earlier sessions[/bold]")
         _print_hits(advice.similar)
     console.print("\n[dim]Change one or two things at a time: re setup set <param>=<value> --why \"...\"[/dim]")
+
+
+# --- the AI engineer -----------------------------------------------------
+
+class ConsoleIO:
+    """The engineer's side of the terminal."""
+
+    def say(self, text: str) -> None:
+        console.print("\n[bold cyan]engineer[/bold cyan]")
+        console.print(Markdown(text))
+
+    def notice(self, text: str) -> None:
+        console.print(f"[yellow]{escape(text)}[/yellow]")
+
+    def ask(self, prompt: str) -> str | None:
+        try:
+            return console.input(f"\n[bold]{escape(prompt)}>[/bold] ")
+        except EOFError:
+            return None
+
+    def confirm(self, prompt: str) -> bool:
+        reply = self.ask(f"{prompt} [y/n]")
+        return reply is not None and reply.strip().lower() in ("y", "yes")
+
+    def show_proposal(self, title: str, lines: list[str]) -> None:
+        console.print(Panel("\n".join(escape(line) for line in lines), title=title, border_style="green"))
+
+
+@app.command("engineer")
+def engineer_cmd(
+    feedback_id: Optional[int] = typer.Argument(
+        None, help="Feedback to discuss (default: the latest one in the active session not yet discussed)."
+    ),
+    model: Optional[str] = typer.Option(None, help="Claude model id (default: claude-opus-5-5)."),
+    effort: Optional[str] = typer.Option(None, help="low, medium, high, xhigh or max (default: high)."),
+) -> None:
+    """Talk a complaint through with the AI race engineer. Needs a connection; offline it queues the
+    feedback and shows offline advice instead."""
+    with _open() as conn:
+        if feedback_id is not None:
+            feedback = repo.get_feedback(conn, feedback_id)
+        else:
+            session = repo.current_session(conn)
+            feedback = repo.latest_undiscussed_feedback(conn, session.id)
+            if feedback is None:
+                text = ConsoleIO().ask("What is the bike doing?")
+                if not text or not text.strip():
+                    return
+                feedback = repo.add_feedback(conn, session.id, text.strip())
+                console.print(f"[dim]Logged as feedback #{feedback.id}.[/dim]")
+        queued = [f for f in repo.pending_analysis(conn) if f.id != feedback.id]
+        if queued:
+            console.print(f"[dim]{len(queued)} other feedback item(s) are queued: `re analyze-pending`.[/dim]")
+        _run_engineer(conn, feedback, _engineer_config(model, effort))
+
+
+@app.command("analyze-pending")
+def analyze_pending(
+    model: Optional[str] = typer.Option(None, help="Claude model id (default: claude-opus-5-5)."),
+    effort: Optional[str] = typer.Option(None, help="low, medium, high, xhigh or max (default: high)."),
+) -> None:
+    """Go through feedback that was queued while offline, one conversation each."""
+    with _open() as conn:
+        queue = repo.pending_analysis(conn)
+        if not queue:
+            console.print("Nothing queued.")
+            return
+        for number, feedback in enumerate(queue, start=1):
+            console.rule(f"Queued feedback {number} of {len(queue)}")
+            if not _run_engineer(conn, feedback, _engineer_config(model, effort)):
+                break
+
+
+def _engineer_config(model: str | None, effort: str | None) -> EngineerConfig:
+    config = EngineerConfig()
+    if model:
+        config.model = model
+    if effort:
+        if effort not in ("low", "medium", "high", "xhigh", "max"):
+            raise typer.BadParameter("effort must be low, medium, high, xhigh or max", param_hint="--effort")
+        config.effort = effort
+    return config
+
+
+def _run_engineer(conn: sqlite3.Connection, feedback: Feedback, config: EngineerConfig) -> bool:
+    """One engineer conversation about one feedback. Returns False if it couldn't take place."""
+    session = repo.get_session(conn, feedback.session_id)
+    if not offline.is_online():
+        _go_offline(conn, feedback, "No connection to the Anthropic API.")
+        return False
+    try:
+        engineer = Engineer(conn, make_client(), ConsoleIO(), bike_id=session.bike_id, session_id=session.id,
+                            feedback_id=feedback.id, config=config)
+        console.print(f"[dim]Engineer on the line ({config.model}). Type q when you're done.[/dim]")
+        engineer.run(engineer.opening_message())
+    except EngineerOffline:
+        _go_offline(conn, feedback, "Lost the connection. Everything agreed so far is saved.")
+        return False
+    except EngineerUnavailable as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        return False
+    except KeyboardInterrupt:
+        console.print("\nStopped. The conversation is saved.")
+    repo.clear_pending(conn, feedback.id)
+    return True
+
+
+def _go_offline(conn: sqlite3.Connection, feedback: Feedback, reason: str) -> None:
+    repo.queue_analysis(conn, feedback.id)
+    console.print(f"[yellow]{reason} Feedback #{feedback.id} is queued: run `re analyze-pending` when you "
+                  f"have signal.[/yellow]\nOffline advice in the meantime:\n")
+    _print_advice(advisor.advise(conn, feedback.id))
 
 
 @history_app.command("search")

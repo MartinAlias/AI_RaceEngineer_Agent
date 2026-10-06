@@ -7,7 +7,8 @@ A virtual motorcycle race engineer for the terminal. Everything is stored in a l
 - **Offline advice** (`re advise`) that combines the guide with your current setup, your bike's allowed ranges and your own history.
 - **History** (`re history`): search past notes, and see which changes have worked for this bike.
 
-The AI engineer (diagnosis, follow-up questions and setup recommendations) comes in phase 3.
+- **Outcomes** (`re outcome`): record how each change worked. This builds your bike's history.
+- **The AI engineer** (`re engineer`): talk a complaint through with Claude. It reads your setup, conditions and history, asks follow-up questions, and proposes at most two changes at a time. It explains each proposal, and only applies it if you accept. Offline, it queues the feedback and shows the offline advice instead.
 
 ## Install
 
@@ -37,7 +38,40 @@ re advise                                                    # likely causes, ch
 re setup set fork.rebound=-2 --why "hold the front down"     # creates a new setup; the old one is kept
 re setup diff                                                # compare with the previous setup
 re session start --track Brno --type FP2 --track-temp 41     # runs with the new setup
+re lap add 2:01.640 2:01.388
+re outcome better --resolved --notes "front stays planted"   # best-lap gain vs FP1 is computed
 ```
+
+Or let the engineer drive it:
+
+```powershell
+re feedback "front feels slippery mid corner T3, T7"
+re engineer          # asks follow-ups, proposes a change, applies it if you accept
+                     # next session: run it again and tell it how the change felt
+```
+
+## The AI engineer
+
+`re engineer` needs an Anthropic API key. Create one at https://platform.claude.com, then:
+
+```powershell
+setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
+```
+
+- **Model and effort:** it uses `claude-opus-5-5` at effort `high`. Change these with `--model` / `--effort`, or with the `RACE_ENGINEER_MODEL` / `RACE_ENGINEER_EFFORT` environment variables.
+- **Its tools:** everything it knows comes from your local database, through these tools:
+  - session context
+  - setup history
+  - history search
+  - learned effects
+  - the symptom guide
+  - updating feedback tags
+  - proposing changes
+  - recording outcomes
+- **Your approval:** proposals are checked against your bike's ranges and shown to you before anything is applied. Every applied change is recorded as proposed by the engineer.
+- **Saved conversations:** each conversation is stored in the database for later review.
+- **Offline:** with no connection (or if it drops mid-conversation), the feedback is queued and you get `re advise` output instead. Run `re analyze-pending` when you have signal again.
+- **Refusal fallback:** requests use Anthropic's server-side refusal fallback (`fallbacks: "default"`). If the model declines a request on safety grounds, it is retried on a fallback model.
 
 ## Setup values
 
@@ -63,6 +97,9 @@ re session start --track Brno --type FP2 --track-temp 41     # runs with the new
 | `re setup show / set / diff / history / revert / params` | setups |
 | `re lap add / list` | lap times (`--sectors`, `--invalid`) |
 | `re feedback "..."` | rider feedback; front/rear, phase, corners and symptom are detected from the text unless given |
+| `re outcome better/same/worse` | record how the latest (or `--change`) change worked |
+| `re engineer [feedback id]` | talk it through with the AI engineer |
+| `re analyze-pending` | feedback queued while offline |
 | `re advise [feedback id]` | offline advice for the latest (or given) feedback |
 | `re guide [symptom]` | browse the symptom guide |
 | `re history search / effects` | search past notes; what changes did for this bike |

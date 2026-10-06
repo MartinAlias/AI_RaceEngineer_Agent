@@ -567,6 +567,60 @@ def update_feedback(
     return get_feedback(conn, feedback_id)
 
 
+# --- engineer: offline queue and transcripts -----------------------------
+
+def queue_analysis(conn: sqlite3.Connection, feedback_id: int) -> None:
+    get_feedback(conn, feedback_id)
+    with conn:
+        conn.execute("INSERT OR IGNORE INTO pending_analysis (feedback_id) VALUES (?)", (feedback_id,))
+
+
+def pending_analysis(conn: sqlite3.Connection) -> list[Feedback]:
+    rows = conn.execute(
+        "SELECT f.* FROM pending_analysis p JOIN feedback f ON f.id = p.feedback_id ORDER BY p.created_at, f.id"
+    )
+    return [from_row(Feedback, r, ("corners",)) for r in rows]
+
+
+def latest_undiscussed_feedback(conn: sqlite3.Connection, session_id: int) -> Feedback | None:
+    """Most recent feedback in a session that no engineer conversation has covered yet."""
+    row = conn.execute(
+        """SELECT f.* FROM feedback f WHERE f.session_id = ?
+           AND NOT EXISTS (SELECT 1 FROM engineer_conversation e WHERE e.feedback_id = f.id)
+           ORDER BY f.id DESC LIMIT 1""",
+        (session_id,),
+    ).fetchone()
+    return from_row(Feedback, row, ("corners",)) if row else None
+
+
+def clear_pending(conn: sqlite3.Connection, feedback_id: int) -> None:
+    with conn:
+        conn.execute("DELETE FROM pending_analysis WHERE feedback_id = ?", (feedback_id,))
+
+
+def save_conversation(
+    conn: sqlite3.Connection,
+    conversation_id: int | None,
+    *,
+    bike_id: int,
+    session_id: int | None,
+    feedback_id: int | None,
+    model: str,
+    messages: list[Any],
+) -> int:
+    """Insert or update an engineer transcript; returns its id."""
+    payload = json.dumps(messages)
+    with conn:
+        if conversation_id is None:
+            return conn.execute(
+                """INSERT INTO engineer_conversation (bike_id, session_id, feedback_id, model, messages)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (bike_id, session_id, feedback_id, model, payload),
+            ).lastrowid
+        conn.execute("UPDATE engineer_conversation SET messages = ? WHERE id = ?", (payload, conversation_id))
+        return conversation_id
+
+
 # --- helpers -------------------------------------------------------------
 
 def _lookup(conn: sqlite3.Connection, table: str, ref: int | str) -> sqlite3.Row | None:

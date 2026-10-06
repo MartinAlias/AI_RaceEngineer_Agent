@@ -154,6 +154,7 @@ def test_migration_v2_indexes_existing_notes(tmp_path):
     import sqlite3
     raw = sqlite3.connect(path)
     raw.executescript("""
+        DROP TABLE pending_analysis; DROP TABLE engineer_conversation;
         DROP TABLE notes_fts; DROP TABLE param_range;
         DROP TRIGGER feedback_fts_insert; DROP TRIGGER feedback_fts_update;
         DROP TRIGGER change_fts_insert; DROP TRIGGER outcome_fts_insert;
