@@ -2,7 +2,7 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-06. Tests: 85 passing. Latest commit: `4c8ddce` (pushed to GitHub).
+Last updated: 2026-10-06. Tests: 85 passing. Last code change: `4c8ddce` (phase 3); `git log` shows anything newer.
 
 ## Goal
 
