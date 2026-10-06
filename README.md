@@ -6,7 +6,6 @@ A virtual motorcycle race engineer for the terminal. Everything is stored in a l
 - **A symptom guide** (`re guide`) with about 20 common complaints, their likely causes, what to check and what to change.
 - **Offline advice** (`re advise`) that combines the guide with your current setup, your bike's allowed ranges and your own history.
 - **History** (`re history`): search past notes, and see which changes have worked for this bike.
-
 - **Outcomes** (`re outcome`): record how each change worked. This builds your bike's history.
 - **The AI engineer** (`re engineer`): talk a complaint through with Claude. It reads your setup, conditions and history, asks follow-up questions, and proposes at most two changes at a time. It explains each proposal, and only applies it if you accept. Offline, it queues the feedback and shows the offline advice instead.
 
@@ -104,3 +103,11 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 | `re guide [symptom]` | browse the symptom guide |
 | `re history search / effects` | search past notes; what changes did for this bike |
 | `re bike range [param min max]` | show or set allowed setup ranges for the current bike |
+
+## Development
+
+- [`docs/STATUS.md`](docs/STATUS.md): what's built (phase by phase), what's next, known gaps and the decision log.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): modules, database schema and migrations, the engineer loop, and testing.
+- [`CLAUDE.md`](CLAUDE.md): working notes for Claude Code sessions on this project, including how to pick up where the last session left off.
+
+Run the tests with `pytest` (85 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.
