@@ -65,6 +65,29 @@ def test_guide_advise_and_history(tmp_path):
     assert "No results recorded yet" in run(db_path, "history", "effects")
 
 
+def test_outcome_flow(tmp_path):
+    db_path = tmp_path / "cli3.db"
+    run(db_path, "bike", "add", "R6", "--set", "fork.rebound=10")
+    run(db_path, "track", "add", "Brno")
+    run(db_path, "session", "start", "--track", "Brno", "--type", "FP1", "--track-temp", "38")
+    run(db_path, "lap", "add", "2:01.955")
+    run(db_path, "feedback", "front feels slippery mid corner")
+    run(db_path, "setup", "set", "fork.rebound=-2")
+    run(db_path, "session", "start", "--track", "Brno", "--type", "FP2", "--track-temp", "41")
+    run(db_path, "lap", "add", "2:01.388")
+
+    out = run(db_path, "outcome", "better", "--resolved", "--notes", "front stays planted")
+    assert "Change #1 (fork.rebound 10 -> 8 (-2)): better, complaint resolved" in out
+    assert "Best lap -0.567 vs FP1" in out
+
+    assert "better (-0.567)" in run(db_path, "setup", "history")
+    out = run(db_path, "history", "effects")
+    assert "front_push_mid" in out and "fork.rebound -2" in out
+
+    result = runner.invoke(app, ["--db", str(db_path), "outcome", "same"])
+    assert result.exit_code == 1 and "No changes waiting" in result.output
+
+
 def test_errors_are_reported_without_traceback(tmp_path):
     result = runner.invoke(app, ["--db", str(tmp_path / "e.db"), "lap", "add", "1:42.3"])
     assert result.exit_code == 1

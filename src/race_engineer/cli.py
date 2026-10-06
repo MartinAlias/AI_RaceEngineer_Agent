@@ -392,13 +392,17 @@ def setup_history() -> None:
     with _open() as conn:
         bike = repo.current_bike(conn)
         changes = {c.after_setup_id: c for c in repo.list_changes(conn, bike_id=bike.id)}
-        table = Table("", "Setup", "Created", "Change", "Why / note", title=f"{bike.name} setup history")
+        table = Table("", "Setup", "Created", "Change", "Why / note", "Result", title=f"{bike.name} setup history")
         for s in repo.setup_history(conn, bike.id):
             change = changes.get(s.id)
             marks = ("*" if s.id == bike.current_setup_id else "") + ("B" if s.id == bike.baseline_setup_id else "")
             what = "; ".join(setup_diff.format_delta(d) for d in change.deltas) if change else ""
             why = " / ".join(x for x in (change.hypothesis if change else None, s.notes) if x)
-            table.add_row(marks, f"#{s.id}", s.created_at, what, escape(why))
+            result = ""
+            if change:
+                outcomes = repo.list_outcomes(conn, change.id)
+                result = ", ".join(_outcome_label(o) for o in outcomes) or "[dim]pending[/dim]"
+            table.add_row(marks, f"#{s.id}", s.created_at, what, escape(why), result)
         console.print(table)
         console.print("[dim]* current   B baseline[/dim]")
 
@@ -484,6 +488,60 @@ def feedback(
                 f"corners={','.join(f.corners)}" if f.corners else "", f"symptom={f.symptom}" if f.symptom else ""]
         console.print(f"Feedback #{f.id} saved to session #{session.id}. " + " ".join(t for t in tags if t))
         console.print("Run [cyan]re advise[/cyan] for likely causes and what to try.")
+
+
+@app.command()
+def outcome(
+    verdict: str = typer.Argument(..., help="How the change worked: better, same or worse."),
+    change_id: Optional[int] = typer.Option(None, "--change", help="Default: the latest change without a result."),
+    session_id: Optional[int] = typer.Option(
+        None, "--session", help="Session the change was tested in (default: the active session)."
+    ),
+    resolved: Optional[bool] = typer.Option(
+        None, "--resolved/--not-resolved", help="Whether the original complaint is gone."
+    ),
+    notes: Optional[str] = typer.Option(None, help='What you felt, e.g. "front stays planted, a bit harsh in T1".'),
+) -> None:
+    """Record the result of a setup change. This is what builds your bike's history."""
+    with _open() as conn:
+        bike = repo.current_bike(conn)
+        if change_id is None:
+            pending = repo.changes_without_outcome(conn, bike.id)
+            if not pending:
+                raise repo.RepoError("No changes waiting for a result. Use --change to add another result.")
+            change = pending[0]
+        else:
+            change = repo.get_change(conn, change_id)
+        if session_id is None:
+            session_id = _active_session_id(conn, bike.id)
+            if session_id == change.session_id:
+                session_id = None  # still in the session the change was made after: no test session yet
+        result = repo.add_outcome(conn, change.id, verdict.lower(), session_id=session_id,
+                                  lap_delta_ms=repo.lap_delta(conn, change, session_id),
+                                  symptom_resolved=resolved, notes=notes)
+
+        what = "; ".join(setup_diff.format_delta(d) for d in change.deltas)
+        console.print(f"Change #{change.id} ({what}): [bold]{result.verdict}[/bold]"
+                      + (", complaint resolved" if result.symptom_resolved else ""))
+        if result.lap_delta_ms is not None:
+            before, after = repo.get_session(conn, change.session_id), repo.get_session(conn, session_id)
+            console.print(f"Best lap {timing.format_gap(result.lap_delta_ms)} vs {before.type} "
+                          f"(track {_num(after.track_temp, ' °C')} vs {_num(before.track_temp, ' °C')})")
+        if session_id is not None:
+            tested = repo.get_session(conn, session_id)
+            if tested.setup_id != change.after_setup_id:
+                console.print(f"[yellow]Note: session #{tested.id} ran setup #{tested.setup_id}, "
+                              f"not #{change.after_setup_id} from this change.[/yellow]")
+        remaining = len(repo.changes_without_outcome(conn, bike.id))
+        if remaining:
+            console.print(f"[dim]{remaining} more change(s) waiting for a result.[/dim]")
+
+
+def _outcome_label(o) -> str:
+    label = {"better": "[green]better[/green]", "same": "same", "worse": "[red]worse[/red]"}[o.verdict]
+    if o.lap_delta_ms is not None:
+        label += f" ({timing.format_gap(o.lap_delta_ms)})"
+    return label
 
 
 # --- guide, advice and history ------------------------------------------

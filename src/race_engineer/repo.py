@@ -518,6 +518,55 @@ def list_outcomes(conn: sqlite3.Connection, change_id: int) -> list[Outcome]:
     return [from_row(Outcome, r) for r in rows]
 
 
+def changes_without_outcome(conn: sqlite3.Connection, bike_id: int) -> list[Change]:
+    """Changes whose result hasn't been recorded yet, newest first."""
+    rows = conn.execute(
+        """SELECT * FROM change c WHERE c.bike_id = ?
+           AND NOT EXISTS (SELECT 1 FROM outcome o WHERE o.change_id = c.id)
+           ORDER BY c.id DESC""",
+        (bike_id,),
+    )
+    return [from_row(Change, r, ("deltas",)) for r in rows]
+
+
+def lap_delta(conn: sqlite3.Connection, change: Change, test_session_id: int | None) -> int | None:
+    """Best lap in the test session minus best lap in the session the change was made after.
+
+    Negative = faster. None when either session is unknown or has no valid laps.
+    """
+    if test_session_id is None or change.session_id is None or test_session_id == change.session_id:
+        return None
+    before, after = best_lap(conn, change.session_id), best_lap(conn, test_session_id)
+    if before is None or after is None:
+        return None
+    return after.time_ms - before.time_ms
+
+
+def update_feedback(
+    conn: sqlite3.Connection,
+    feedback_id: int,
+    *,
+    end: str | None = None,
+    phase: str | None = None,
+    corners: list[str] | None = None,
+    symptom: str | None = None,
+) -> Feedback:
+    """Refine a feedback's tags (e.g. after follow-up questions). Fields left None are kept."""
+    current = get_feedback(conn, feedback_id)
+    if end not in (None, *tagging.ENDS):
+        raise RepoError(f"End must be one of: {', '.join(tagging.ENDS)}.")
+    if phase not in (None, *tagging.PHASES):
+        raise RepoError(f"Phase must be one of: {', '.join(tagging.PHASES)}.")
+    with conn:
+        conn.execute(
+            """UPDATE feedback SET "end" = ?, phase = ?, corners = ?, symptom = ? WHERE id = ?""",
+            (end or current.end, phase or current.phase,
+             json.dumps([c.upper() for c in corners] if corners is not None else current.corners),
+             symptom or current.symptom, feedback_id),
+        )
+    return get_feedback(conn, feedback_id)
+
+
 # --- helpers -------------------------------------------------------------
 
 def _lookup(conn: sqlite3.Connection, table: str, ref: int | str) -> sqlite3.Row | None:

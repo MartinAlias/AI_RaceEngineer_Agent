@@ -104,6 +104,32 @@ def test_feedback_validation(conn, weekend):
         repo.add_feedback(conn, session.id, "x", phase="apex")
 
 
+def test_outcome_lap_delta_and_pending(conn, weekend):
+    bike, track, fp1 = weekend
+    repo.add_laps(conn, fp1.id, [122_000, 121_955])
+    change = repo.change_setup(conn, bike.id, [parse_assignment("fork.rebound=-2")], session_id=fp1.id)
+    assert [c.id for c in repo.changes_without_outcome(conn, bike.id)] == [change.id]
+
+    fp2 = repo.start_session(conn, bike.id, track.id, type="FP2")
+    assert repo.lap_delta(conn, change, fp2.id) is None  # no laps yet
+    repo.add_laps(conn, fp2.id, [121_388])
+    assert repo.lap_delta(conn, change, fp2.id) == -567
+    assert repo.lap_delta(conn, change, fp1.id) is None  # same session: no comparison
+
+    repo.add_outcome(conn, change.id, "better", session_id=fp2.id, lap_delta_ms=-567, symptom_resolved=True)
+    assert repo.changes_without_outcome(conn, bike.id) == []
+    with pytest.raises(repo.RepoError):
+        repo.add_outcome(conn, change.id, "great")
+
+
+def test_update_feedback_keeps_unset_fields(conn, weekend):
+    _, _, session = weekend
+    f = repo.add_feedback(conn, session.id, "front feels vague T3")
+    updated = repo.update_feedback(conn, f.id, phase="entry", symptom="front_push_entry")
+    assert (updated.end, updated.phase, updated.corners, updated.symptom) == (
+        "front", "entry", ["T3"], "front_push_entry")
+
+
 def test_use_bike_clears_session_of_other_bike(conn, weekend):
     repo.add_bike(conn, "Spare")
     repo.use_bike(conn, "Spare")
