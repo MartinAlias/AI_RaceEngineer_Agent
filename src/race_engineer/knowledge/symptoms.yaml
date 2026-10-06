@@ -1,0 +1,544 @@
+# Symptom guide: rider complaint -> likely causes -> what to check -> what to change.
+#
+# These are generic starting points for a sport/race motorcycle, not rules. Your own
+# history (re history effects) should outweigh this file once it has data.
+#
+# Fields
+#   id          stable identifier, stored on feedback and changes
+#   end         front | rear | null (both / whole bike)
+#   phases      corner phases where it shows up: braking, entry, mid, exit, straight
+#   keywords    word prefixes matched against the rider's words ("slip" matches "slippery")
+#   follow_up   questions worth asking before changing anything
+#   causes      ordered most to least common; likelihood is high | medium | low
+#     adjustments  param + step in the param's own units (see `re setup params`):
+#                  clickers are clicks OUT, so a negative step = MORE damping;
+#                  fork.height + = front lower; shock.ride_height + = rear higher;
+#                  rear sprocket + = shorter gearing; chain_links + = longer wheelbase.
+
+- id: front_push_entry
+  name: Front pushes / tucks on corner entry
+  end: front
+  phases: [entry, braking]
+  keywords: [push, tuck, wash, slid, slip, "lose the front", "losing the front", "front goes", "no front grip", vague]
+  follow_up:
+    - Does it happen while still trail braking, or after you release the brake?
+    - Slow corners, fast corners, or everywhere?
+    - What were the hot front pressures when you came in?
+    - Is the fork using all its travel (check the o-ring / zip tie)?
+  causes:
+    - description: Front pressure out of the tire's window, or the front tire not up to temperature
+      likelihood: high
+      checks: [Compare hot front pressure with the tire maker's hot target, Cold track or a fresh tire makes this worse]
+      adjustments:
+        - {param: tire.front_cold, step: -0.1, effect: "Bigger contact patch if the hot pressure was above target"}
+    - description: Fork compression too stiff, so the fork doesn't load the tire on the brakes
+      likelihood: medium
+      checks: [Unused fork travel at the end of the session, Front feels harsh over braking bumps]
+      adjustments:
+        - {param: fork.compression, step: 2, effect: "Softer compression, fork compresses and loads the front tire"}
+    - description: Front sitting too high (weight biased to the rear)
+      likelihood: medium
+      checks: [Bike also slow to turn in, Front rider sag on the low side]
+      adjustments:
+        - {param: fork.height, step: 2, effect: "Lowers the front, more weight on the front tire"}
+        - {param: shock.ride_height, step: 2, effect: "Raises the rear, moves weight forward"}
+    - description: Fork too soft and bottoming at entry, leaving no suspension at the tire
+      likelihood: low
+      checks: [O-ring at or near full travel, Harsh clunk on hard braking]
+      adjustments:
+        - {param: fork.compression, step: -2, effect: "More compression damping, holds the fork up"}
+        - {param: fork.preload, step: 1, effect: "More preload, fork sits higher in its stroke"}
+
+- id: front_push_mid
+  name: Front slides / feels slippery mid corner
+  end: front
+  phases: [mid]
+  keywords: [push, tuck, wash, slid, slip, "lose the front", "losing the front", "no front grip", vague, "no feel"]
+  follow_up:
+    - Is it at maximum lean only, or from the moment you release the brake?
+    - Does the front feel like it rises or "floats" when you come off the brakes?
+    - Does it get worse as the tire wears, or is it the same on a fresh front?
+    - What were the hot front pressures?
+  causes:
+    - description: Fork rebound too fast, so the front extends when the brake is released and unloads the tire
+      likelihood: high
+      checks: [Front feels like it lifts or floats after releasing the brake, Problem starts right at brake release]
+      adjustments:
+        - {param: fork.rebound, step: -2, effect: "More rebound damping, front stays down in the corner"}
+    - description: Not enough load on the front at lean (front too high or rear squatting)
+      likelihood: high
+      checks: [Bike also reluctant to hold a tight line, Rear rider sag on the high side]
+      adjustments:
+        - {param: fork.height, step: 2, effect: "Lowers the front, more weight on the front tire"}
+        - {param: shock.ride_height, step: 2, effect: "Raises the rear, moves weight forward"}
+    - description: Front pressure out of the tire's window
+      likelihood: medium
+      checks: [Compare hot front pressure with the tire maker's hot target]
+      adjustments:
+        - {param: tire.front_cold, step: -0.1, effect: "Bigger contact patch if the hot pressure was above target"}
+        - {param: tire.front_cold, step: 0.1, effect: "Supports the carcass if the hot pressure was below target"}
+    - description: Fork too stiff (preload / spring), so the front doesn't settle and conform at lean
+      likelihood: low
+      checks: [Front rider sag below about 30 mm, Front feels harsh over mid-corner bumps]
+      adjustments:
+        - {param: fork.preload, step: -1, effect: "Less preload, front settles into its stroke"}
+
+- id: front_push_exit
+  name: Front loses grip / pushes when picking up the throttle
+  end: front
+  phases: [exit]
+  keywords: [push, tuck, wash, slid, slip, "lose the front", "losing the front", light, "front lifts"]
+  follow_up:
+    - Is it at the first touch of the throttle, or once you are fully on the gas?
+    - Does the bike also run wide on exit?
+    - Does the rear feel like it squats a lot?
+  causes:
+    - description: Rear squats too much on the throttle, taking load off the front
+      likelihood: high
+      checks: [Bike also runs wide on exit, Rear feels low and soft on the gas]
+      adjustments:
+        - {param: shock.ls_compression, step: -2, effect: "More low-speed compression, less squat"}
+        - {param: shock.preload, step: 1, effect: "More preload, rear sits higher"}
+    - description: Fork rebound too fast, front extends quickly as the bike pitches back
+      likelihood: medium
+      checks: [Front feels like it lifts as you open the throttle]
+      adjustments:
+        - {param: fork.rebound, step: -2, effect: "More rebound damping, front extends more slowly"}
+    - description: Throttle pickup too abrupt at full lean (map or technique)
+      likelihood: low
+      checks: [Try a smoother throttle map, "Does it happen with a gentler pickup?"]
+      adjustments: []
+
+- id: runs_wide_exit
+  name: Runs wide on exit / won't hold a line on the throttle
+  end: null
+  phases: [exit]
+  keywords: [wide, "won't hold", "wont hold", "doesn't hold", "stand up", "stands up", "run off", "running off", understeer]
+  follow_up:
+    - Does the rear squat noticeably on the throttle?
+    - Does the front feel light or start to lift?
+    - Which gear are you in through those corners?
+  causes:
+    - description: Rear squat opens the steering geometry under power
+      likelihood: high
+      checks: [Rear feels low on the gas, Rear rider sag on the high side]
+      adjustments:
+        - {param: shock.preload, step: 1, effect: "More preload, less squat"}
+        - {param: shock.ls_compression, step: -2, effect: "More low-speed compression, slows the squat"}
+    - description: Rear ride height too low overall
+      likelihood: medium
+      checks: [Bike also slow to turn in]
+      adjustments:
+        - {param: shock.ride_height, step: 2, effect: "Raises the rear, quicker steering and more front load"}
+    - description: Gearing too short, so the drive comes in too hard at the apex
+      likelihood: low
+      checks: [Bike wheelies or is hard to meter on exit]
+      adjustments:
+        - {param: gearing.rear_sprocket, step: -1, effect: "Taller gearing, softer drive"}
+
+- id: slow_turn_in
+  name: Slow or heavy turn-in
+  end: front
+  phases: [entry]
+  keywords: [heavy, lazy, slow to turn, "won't turn", "wont turn", "doesn't turn", "hard to turn", "turn in", "tip in", reluctant]
+  follow_up:
+    - Is it heavy everywhere, or only in slow or fast corners?
+    - Are you still on the brakes when you tip in?
+    - Is it also hard to change direction in chicanes?
+  causes:
+    - description: Front too high / rear too low (slow steering geometry)
+      likelihood: high
+      checks: [Compare fork height and rear ride height with previous good setups]
+      adjustments:
+        - {param: fork.height, step: 2, effect: "Lowers the front, quicker steering"}
+        - {param: shock.ride_height, step: 2, effect: "Raises the rear, quicker steering"}
+    - description: Too much rear sag, so the bike sits on its tail
+      likelihood: medium
+      checks: [Rear rider sag above about 35 mm]
+      adjustments:
+        - {param: shock.preload, step: 1, effect: "More preload, rear sits higher"}
+    - description: Front pressure too low, so the tire profile resists turning
+      likelihood: medium
+      checks: [Compare hot front pressure with the tire maker's hot target]
+      adjustments:
+        - {param: tire.front_cold, step: 0.1, effect: "Rounder profile, lighter steering"}
+    - description: Fork compression too stiff, so the front doesn't dive into the corner
+      likelihood: low
+      checks: [Unused fork travel at the end of the session]
+      adjustments:
+        - {param: fork.compression, step: 2, effect: "Softer compression, the fork dives and steepens the geometry"}
+
+- id: slow_direction_change
+  name: Heavy in chicanes / slow side-to-side changes
+  end: null
+  phases: [entry, mid]
+  keywords: [chicane, "change direction", "direction change", "side to side", flick, "left right", "right left"]
+  follow_up:
+    - Does the bike feel like it sits low and stays there after a bump or a direction change?
+    - Is turn-in in normal corners also slow?
+  causes:
+    - description: Rebound too slow, so the suspension packs down and stays low
+      likelihood: medium
+      checks: [Bike feels low and harsh through a series of bumps]
+      adjustments:
+        - {param: shock.rebound, step: 2, effect: "Less rebound damping, rear recovers faster"}
+        - {param: fork.rebound, step: 2, effect: "Less rebound damping, front recovers faster"}
+    - description: Slow steering geometry
+      likelihood: medium
+      checks: [Bike also slow to turn in]
+      adjustments:
+        - {param: shock.ride_height, step: 2, effect: "Raises the rear, quicker steering"}
+
+- id: front_chatter
+  name: Front chatter
+  end: front
+  phases: [entry, mid]
+  keywords: [chatter, vibrat, judder, hop, patter]
+  follow_up:
+    - Entry on the brakes, or mid corner at full lean?
+    - Did it start as the tire wore, or is it there from the first lap?
+    - What were the hot front pressures?
+  causes:
+    - description: Fork compression in the wrong place for this track and tire (usually too stiff)
+      likelihood: high
+      checks: ["Try 2 clicks softer first; if worse, go 2 clicks stiffer from the original"]
+      adjustments:
+        - {param: fork.compression, step: 2, effect: "Softer compression, absorbs the oscillation"}
+    - description: Front pressure out of the tire's window
+      likelihood: medium
+      checks: [Compare hot front pressure with the tire maker's hot target]
+      adjustments:
+        - {param: tire.front_cold, step: 0.1, effect: "Stiffer carcass if the hot pressure was below target"}
+    - description: Fork rebound too slow, so the fork packs down
+      likelihood: low
+      checks: [Front feels low and harsh late in the corner]
+      adjustments:
+        - {param: fork.rebound, step: 2, effect: "Less rebound damping, fork recovers between bumps"}
+
+- id: front_harsh
+  name: Front harsh over bumps / deflects
+  end: front
+  phases: [braking, entry, mid, straight]
+  keywords: [harsh, stiff, bumps, bumpy, deflect, "kicks", "skips"]
+  follow_up:
+    - On the brakes, mid corner, or on the straights?
+    - How much fork travel is used (o-ring)?
+  causes:
+    - description: Fork compression too stiff
+      likelihood: high
+      checks: [Unused fork travel at the end of the session]
+      adjustments:
+        - {param: fork.compression, step: 2, effect: "Softer compression, fork absorbs bumps"}
+    - description: Too much preload or oil level, so the fork ramps up early
+      likelihood: medium
+      checks: [Harshness mostly deep in the travel, on the brakes]
+      adjustments:
+        - {param: fork.preload, step: -1, effect: "Less preload"}
+        - {param: fork.oil_level, step: -5, effect: "Lower oil level, less ramp-up near full travel"}
+
+- id: front_dive_braking
+  name: Fork dives too much / bottoms on the brakes
+  end: front
+  phases: [braking]
+  keywords: [dive, dives, bottom, "too soft", "runs out of travel", "out of travel", pitch]
+  follow_up:
+    - How much travel is left on the o-ring after the session?
+    - Is it a clunk at the end of braking, or just a lot of pitch?
+  causes:
+    - description: Fork compression too soft
+      likelihood: high
+      checks: [O-ring at or near full travel]
+      adjustments:
+        - {param: fork.compression, step: -2, effect: "More compression damping, slower dive"}
+    - description: Not enough preload or oil level for the braking load
+      likelihood: medium
+      checks: [Front rider sag on the high side, Clunk at the end of braking]
+      adjustments:
+        - {param: fork.preload, step: 1, effect: "More preload, fork sits higher"}
+        - {param: fork.oil_level, step: 5, effect: "Higher oil level, more resistance near full travel"}
+    - description: Fork springs too soft for the rider and braking force
+      likelihood: low
+      checks: [Preload already near the top of its range]
+      adjustments:
+        - {param: fork.spring_rate, step: 0.5, effect: "Stiffer spring"}
+
+- id: unstable_braking
+  name: Unstable / moving around on the brakes
+  end: null
+  phases: [braking]
+  keywords: [unstable, weave, wobble, "moving around", "moves around", nervous, "rear lifts", "rear light", "back end lifts", squirm]
+  follow_up:
+    - Is the rear lifting or stepping sideways, or is the whole bike weaving?
+    - Does it happen on the downshifts (engine braking) or only on the lever?
+    - What engine-braking / slipper settings are you running?
+  causes:
+    - description: Too much weight transfer, so the front dives and the rear goes light
+      likelihood: high
+      checks: [O-ring at or near full travel, Rear feels light / lifts]
+      adjustments:
+        - {param: fork.compression, step: -2, effect: "More compression damping, less pitch"}
+        - {param: fork.preload, step: 1, effect: "More preload, holds the front up"}
+    - description: Shock rebound too fast, so the rear tops out as weight comes off it
+      likelihood: medium
+      checks: [Rear feels like it springs up when you brake]
+      adjustments:
+        - {param: shock.rebound, step: -2, effect: "More rebound damping, rear extends more slowly"}
+    - description: Geometry too steep for the braking zones
+      likelihood: low
+      checks: [Bike also shakes its head on the straights]
+      adjustments:
+        - {param: fork.height, step: -2, effect: "Raises the front, more trail and stability"}
+    - description: Engine braking too strong or slipper clutch set wrong
+      likelihood: medium
+      checks: [Mostly on downshifts, Try more engine-brake intervention / less engine braking]
+      adjustments: []
+
+- id: rear_hop_entry
+  name: Rear hops / steps out on corner entry
+  end: rear
+  phases: [braking, entry]
+  keywords: [hop, chatter, "steps out", "stepping out", slide, slid, "rear moving", skip]
+  follow_up:
+    - Does it happen on the downshifts, or when you tip in?
+    - What engine-braking / slipper settings are you running?
+  causes:
+    - description: Engine braking too strong, or slipper clutch set wrong
+      likelihood: high
+      checks: [Mostly on downshifts]
+      adjustments: []
+    - description: Shock rebound too slow, so the rear can't follow the ground as it unloads
+      likelihood: medium
+      checks: [Rear feels like it skips over the bumps on the brakes]
+      adjustments:
+        - {param: shock.rebound, step: 2, effect: "Less rebound damping, the rear tire follows the ground"}
+    - description: Too much weight transfer to the front
+      likelihood: medium
+      checks: [Fork dives a lot]
+      adjustments:
+        - {param: fork.compression, step: -2, effect: "More fork compression, less pitch"}
+
+- id: rear_spin_exit
+  name: Rear spins / slides on the throttle
+  end: rear
+  phases: [exit]
+  keywords: [spin, slid, slip, "steps out", "no drive", "no traction", traction, grip, "breaks away"]
+  follow_up:
+    - Does it spin at full lean only, or also as the bike picks up?
+    - Does it get worse as the tire wears or as it gets hot?
+    - What were the hot rear pressures, and what traction control level were you on?
+  causes:
+    - description: Shock too stiff, so the rear doesn't squat and push the tire into the track
+      likelihood: high
+      checks: [Rear feels hard and skates over the surface]
+      adjustments:
+        - {param: shock.ls_compression, step: 2, effect: "Softer low-speed compression, more squat and grip"}
+        - {param: shock.preload, step: -1, effect: "Less preload, more squat"}
+    - description: Rear pressure out of the tire's window, or the tire overheating
+      likelihood: medium
+      checks: [Compare hot rear pressure with the tire maker's hot target, Look for blue / torn rubber]
+      adjustments:
+        - {param: tire.rear_cold, step: -0.1, effect: "Bigger contact patch if the hot pressure was above target"}
+    - description: Rear too high, so there is too little weight on the rear tire under power
+      likelihood: low
+      checks: [Bike turns well but has no drive]
+      adjustments:
+        - {param: shock.ride_height, step: -2, effect: "Lowers the rear, more weight on the rear tire under power"}
+    - description: Traction control or throttle map too aggressive for the conditions
+      likelihood: medium
+      checks: [Try one more step of traction control]
+      adjustments: []
+
+- id: rear_pumping
+  name: Rear pumps / wallows on the throttle
+  end: rear
+  phases: [exit, straight]
+  keywords: [pump, wallow, bounc, bob, "squats and", oscillat]
+  follow_up:
+    - Does the rear bounce back up quickly, or does it sit low and feel harsh?
+    - Is it over bumps, or on smooth tarmac too?
+  causes:
+    - description: Shock rebound too fast (rear bounces back up)
+      likelihood: high
+      checks: [Rear feels springy / bouncy]
+      adjustments:
+        - {param: shock.rebound, step: -2, effect: "More rebound damping, controls the bounce"}
+    - description: Shock low-speed compression too soft
+      likelihood: medium
+      checks: [Rear squats a lot on the throttle]
+      adjustments:
+        - {param: shock.ls_compression, step: -2, effect: "More low-speed compression, less squat"}
+    - description: Shock rebound too slow, so the rear packs down over a series of bumps
+      likelihood: low
+      checks: [Rear feels low and harsh rather than bouncy]
+      adjustments:
+        - {param: shock.rebound, step: 2, effect: "Less rebound damping, rear recovers between bumps"}
+
+- id: rear_chatter
+  name: Rear chatter
+  end: rear
+  phases: [mid, exit]
+  keywords: [chatter, vibrat, judder, patter]
+  follow_up:
+    - At full lean, or as you pick the bike up?
+    - What were the hot rear pressures?
+  causes:
+    - description: Shock damping in the wrong place for this track and tire
+      likelihood: high
+      checks: ["Try 2 clicks softer low-speed compression first; if worse, go stiffer"]
+      adjustments:
+        - {param: shock.ls_compression, step: 2, effect: "Softer low-speed compression"}
+        - {param: shock.rebound, step: 2, effect: "Less rebound damping"}
+    - description: Rear pressure out of the tire's window
+      likelihood: medium
+      checks: [Compare hot rear pressure with the tire maker's hot target]
+      adjustments:
+        - {param: tire.rear_cold, step: 0.1, effect: "Stiffer carcass if the hot pressure was below target"}
+
+- id: rear_harsh
+  name: Rear harsh over bumps
+  end: rear
+  phases: [mid, exit, straight]
+  keywords: [harsh, stiff, bumps, bumpy, kick, "kicks"]
+  follow_up:
+    - Sharp bumps (kerbs, ripples) or big slow bumps?
+    - How much shock travel is used?
+  causes:
+    - description: Shock high-speed compression too stiff (sharp bumps)
+      likelihood: high
+      checks: [Mostly over kerbs and sharp ripples]
+      adjustments:
+        - {param: shock.hs_compression, step: 0.25, effect: "Softer high-speed compression"}
+    - description: Too much preload or too stiff a spring
+      likelihood: medium
+      checks: [Rear rider sag below about 25 mm]
+      adjustments:
+        - {param: shock.preload, step: -1, effect: "Less preload"}
+
+- id: headshake
+  name: Headshake / bars shaking
+  end: front
+  phases: [exit, straight]
+  keywords: [headshake, "head shake", tankslap, "tank slap", shak, "bars shake", "bars move", wobble, weave]
+  follow_up:
+    - On the exit as the front goes light, over crests, or at top speed?
+    - Have you changed the front tire, wheel balance or steering damper recently?
+  causes:
+    - description: Front too light on exit because the rear squats
+      likelihood: high
+      checks: [Mostly on exit with the front light or lifting]
+      adjustments:
+        - {param: shock.preload, step: 1, effect: "Less squat, more weight on the front"}
+    - description: Geometry too steep (not enough trail)
+      likelihood: medium
+      checks: [Also unstable on the brakes or at top speed]
+      adjustments:
+        - {param: fork.height, step: -2, effect: "Raises the front, more trail and stability"}
+    - description: Fork rebound too fast, so the front tops out over crests
+      likelihood: low
+      checks: [Mostly over crests or bumps]
+      adjustments:
+        - {param: fork.rebound, step: -2, effect: "More rebound damping"}
+    - description: Steering damper too soft, or wheel / tire balance
+      likelihood: low
+      checks: [Check the damper setting and wheel balance]
+      adjustments: []
+
+- id: wheelie_exit
+  name: Wheelies on exit
+  end: front
+  phases: [exit]
+  keywords: [wheelie, "front lifts", "front comes up", "lifts the front", "loops"]
+  follow_up:
+    - In which gear and corners?
+    - Is wheelie control on, and at what level?
+  causes:
+    - description: Gearing too short for those corners
+      likelihood: medium
+      checks: [Mostly in 1st / 2nd gear exits]
+      adjustments:
+        - {param: gearing.rear_sprocket, step: -1, effect: "Taller gearing, less wheel torque"}
+    - description: Wheelbase too short or weight too far back
+      likelihood: medium
+      checks: [Rear axle near the front of the adjustment slots]
+      adjustments:
+        - {param: gearing.chain_links, step: 2, effect: "Longer wheelbase, less pitch"}
+        - {param: fork.height, step: 2, effect: "Lowers the front, more weight on the front"}
+    - description: Wheelie control or throttle map
+      likelihood: medium
+      checks: [Try one more step of wheelie control]
+      adjustments: []
+
+- id: gearing_short
+  name: Gearing too short (limiter before the braking point)
+  end: null
+  phases: [straight]
+  keywords: [limiter, "rev limit", "bouncing off", "runs out of revs", "out of revs", "short gearing", "too short"]
+  follow_up:
+    - On which straight, and for how long are you on the limiter?
+    - Would one tooth taller hurt the drive out of the slowest corner?
+  causes:
+    - description: Final drive too short for the longest straight
+      likelihood: high
+      checks: [Look at speed / rpm at the end of the longest straight]
+      adjustments:
+        - {param: gearing.rear_sprocket, step: -1, effect: "Taller gearing, more top speed"}
+
+- id: gearing_tall
+  name: Gearing too tall (bogging out of slow corners)
+  end: null
+  phases: [exit]
+  keywords: [bog, bogging, "no drive", "between gears", "too tall", "tall gearing", "off the power", sluggish]
+  follow_up:
+    - Which corners, and which gear?
+    - Are you short of the limiter at the end of the longest straight?
+  causes:
+    - description: Final drive too tall for the slow corners
+      likelihood: high
+      checks: [Short of the limiter at the end of the longest straight]
+      adjustments:
+        - {param: gearing.rear_sprocket, step: 1, effect: "Shorter gearing, better drive"}
+
+- id: front_tire_wear
+  name: Front tire tearing / graining / overheating
+  end: front
+  phases: [entry, mid]
+  keywords: [tear, torn, grain, overheat, "cold tear", wear, worn, blister]
+  follow_up:
+    - Is the rubber torn (cold tear) or blistered / blue (overheating)?
+    - Which part of the tire: centre, left or right edge?
+    - What were the hot front pressures?
+  causes:
+    - description: Pressure too low (overheating) or too high (cold tearing)
+      likelihood: high
+      checks: [Compare hot front pressure with the tire maker's hot target]
+      adjustments:
+        - {param: tire.front_cold, step: 0.1, effect: "Less carcass flex and heat if it is overheating"}
+        - {param: tire.front_cold, step: -0.1, effect: "More flex and heat if it is cold tearing"}
+    - description: Fork too stiff, so the tire does the suspension's work
+      likelihood: medium
+      checks: [Unused fork travel, Front feels harsh]
+      adjustments:
+        - {param: fork.compression, step: 2, effect: "Softer compression"}
+
+- id: rear_tire_wear
+  name: Rear tire tearing / spinning up / overheating
+  end: rear
+  phases: [exit, mid]
+  keywords: [tear, torn, grain, overheat, "cold tear", wear, worn, blister, "goes off", "dropping off"]
+  follow_up:
+    - Is the rubber torn (cold tear) or blistered / blue (overheating)?
+    - How many laps before the grip drops off?
+    - What were the hot rear pressures?
+  causes:
+    - description: Shock too stiff or rebound too slow, so the tire skates and spins
+      likelihood: high
+      checks: ["Rear feels hard and spins up easily"]
+      adjustments:
+        - {param: shock.ls_compression, step: 2, effect: "Softer low-speed compression, more mechanical grip"}
+        - {param: shock.rebound, step: 2, effect: "Less rebound damping, the tire follows the ground"}
+    - description: Pressure out of the tire's window
+      likelihood: medium
+      checks: [Compare hot rear pressure with the tire maker's hot target]
+      adjustments:
+        - {param: tire.rear_cold, step: 0.1, effect: "Less carcass flex and heat if it is overheating"}
+        - {param: tire.rear_cold, step: -0.1, effect: "More flex and heat if it is cold tearing"}

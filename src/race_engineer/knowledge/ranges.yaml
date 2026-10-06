@@ -1,0 +1,32 @@
+# Default allowed range per setup parameter: [min, max] in the parameter's units.
+#
+# These are wide sanity limits that fit most sport / race bikes. Set your bike's real
+# limits (clicker counts, adjuster travel, your tire maker's pressures) with:
+#   re bike range fork.rebound 0 20
+# Bike-specific ranges replace these. A setup change outside the range is refused
+# unless you pass --force.
+
+fork.preload: [0, 25]
+fork.compression: [0, 40]
+fork.rebound: [0, 40]
+fork.spring_rate: [6, 14]
+fork.oil_level: [50, 200]
+fork.height: [-5, 20]
+shock.preload: [0, 30]
+shock.hs_compression: [0, 5]
+shock.ls_compression: [0, 40]
+shock.rebound: [0, 40]
+shock.spring_rate: [60, 160]
+shock.ride_height: [-15, 15]
+sag.front_static: [0, 60]
+sag.front_rider: [0, 70]
+sag.rear_static: [0, 40]
+sag.rear_rider: [0, 60]
+gearing.front_sprocket: [12, 18]
+gearing.rear_sprocket: [35, 55]
+gearing.chain_links: [100, 130]
+# Tire pressures are safety-relevant: set your tire maker's range for your tires.
+tire.front_cold: [1.5, 2.8]
+tire.rear_cold: [1.3, 2.8]
+tire.front_hot: [1.7, 3.0]
+tire.rear_hot: [1.5, 3.0]

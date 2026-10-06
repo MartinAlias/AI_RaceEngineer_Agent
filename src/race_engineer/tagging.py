@@ -41,13 +41,19 @@ def tag(text: str) -> Tags:
         corner = f"T{int(number)}"
         if corner not in corners:
             corners.append(corner)
+    found_phases = phases(text)
+    ends = _matches(lowered, _END_WORDS)
     return Tags(
-        end=_single_match(lowered, _END_WORDS),
-        phase=_single_match(lowered, _PHASE_WORDS),
+        end=ends[0] if len(ends) == 1 else None,
+        phase=found_phases[0] if len(found_phases) == 1 else None,
         corners=corners,
     )
 
 
-def _single_match(text: str, table: dict[str, tuple[str, ...]]) -> str | None:
-    hits = [name for name, words in table.items() if any(re.search(r"\b" + re.escape(w), text) for w in words)]
-    return hits[0] if len(hits) == 1 else None
+def phases(text: str) -> list[str]:
+    """Every corner phase the text mentions."""
+    return _matches(text.lower(), _PHASE_WORDS)
+
+
+def _matches(text: str, table: dict[str, tuple[str, ...]]) -> list[str]:
+    return [name for name, words in table.items() if any(re.search(r"\b" + re.escape(w), text) for w in words)]

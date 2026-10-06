@@ -1,6 +1,13 @@
 # Race Engineer
 
-A virtual motorcycle race engineer for the terminal. Phase 1 covers logging: bikes, tracks, sessions, setups, lap times and rider feedback, all stored in a local SQLite database that works offline. The AI engineer (diagnosis, follow-up questions and setup recommendations) comes in phase 3.
+A virtual motorcycle race engineer for the terminal. Everything is stored in a local SQLite database and works offline:
+
+- **Logging** of bikes, tracks, sessions, setups, lap times and rider feedback.
+- **A symptom guide** (`re guide`) with about 20 common complaints, their likely causes, what to check and what to change.
+- **Offline advice** (`re advise`) that combines the guide with your current setup, your bike's allowed ranges and your own history.
+- **History** (`re history`): search past notes, and see which changes have worked for this bike.
+
+The AI engineer (diagnosis, follow-up questions and setup recommendations) comes in phase 3.
 
 ## Install
 
@@ -24,9 +31,10 @@ re track add Brno --length 5403 --direction cw --corner "3:Hairpin:slow hairpin"
 
 re session start --track Brno --type FP1 --track-temp 38 --air-temp 24 --tire-front "SC1" --tire-rear "SC0"
 re lap add 1:43.10 1:42.31 1:42.05
-re feedback "front feels slippery mid corner T3, T7" --severity 3
+re feedback "front feels slippery mid corner T3, T7" --severity 3   # tagged as front_push_mid
+re advise                                                    # likely causes, checks, what to try
 
-re setup set fork.rebound=+2 --why "less push mid corner"   # creates a new setup; the old one is kept
+re setup set fork.rebound=-2 --why "hold the front down"     # creates a new setup; the old one is kept
 re setup diff                                                # compare with the previous setup
 re session start --track Brno --type FP2 --track-temp 41     # runs with the new setup
 ```
@@ -37,6 +45,12 @@ re session start --track Brno --type FP2 --track-temp 41     # runs with the new
 - Clickers are counted **clicks out from fully closed**.
 - `re setup params` lists all keys. `electronics.<anything>` takes free-form values, for example `electronics.tc=4` or `electronics.map=B`.
 - Setups are never edited in place. `re setup history` shows the lineage and `re setup revert <id>` goes back to an earlier setup.
+- Changes must stay inside the allowed range for each setting. The defaults in `knowledge/ranges.yaml` are wide sanity limits. Set your bike's real limits, such as clicker counts and your tire maker's pressures, with `re bike range fork.rebound 0 20`. Use `--force` to go outside a range.
+- Each change records the symptom it targets: by default the latest feedback's symptom, or set it with `--symptom`. Once results are recorded, `re history effects` and `re advise` show how each kind of change has worked for this bike.
+
+## Symptom guide
+
+`src/race_engineer/knowledge/symptoms.yaml` is plain YAML you can edit: add symptoms, keywords that match how you describe things, causes and adjustments. It is checked when it loads, so a misspelled parameter name raises an error.
 
 ## Commands
 
@@ -48,4 +62,8 @@ re session start --track Brno --type FP2 --track-temp 41     # runs with the new
 | `re session start / list / show / use` | sessions and the active session |
 | `re setup show / set / diff / history / revert / params` | setups |
 | `re lap add / list` | lap times (`--sectors`, `--invalid`) |
-| `re feedback "..."` | rider feedback; front/rear, phase and corners are detected from the text unless given |
+| `re feedback "..."` | rider feedback; front/rear, phase, corners and symptom are detected from the text unless given |
+| `re advise [feedback id]` | offline advice for the latest (or given) feedback |
+| `re guide [symptom]` | browse the symptom guide |
+| `re history search / effects` | search past notes; what changes did for this bike |
+| `re bike range [param min max]` | show or set allowed setup ranges for the current bike |

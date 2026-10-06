@@ -39,6 +39,32 @@ def test_practice_session_flow(tmp_path):
     assert "1:42.310" in out and "slippery" in out
 
 
+def test_guide_advise_and_history(tmp_path):
+    db_path = tmp_path / "cli2.db"
+    run(db_path, "bike", "add", "R6", "--set", "fork.rebound=10", "--set", "tire.front_cold=2.1")
+    run(db_path, "track", "add", "Brno")
+    run(db_path, "session", "start", "--track", "Brno", "--track-temp", "38")
+    out = run(db_path, "feedback", "front feels slippery mid corner [T3]")
+    assert "symptom=front_push_mid" in out
+
+    assert "front_push_mid" in run(db_path, "guide")
+    assert "Fork rebound too fast" in run(db_path, "guide", "front_push_mid")
+
+    out = run(db_path, "advise")
+    assert "Front slides / feels slippery mid corner" in out
+    assert "fork.rebound 10 -> 8 (-2)" in out
+    assert "[T3]" in out  # user text is not parsed as markup
+
+    run(db_path, "bike", "range", "fork.rebound", "0", "9")
+    result = runner.invoke(app, ["--db", str(db_path), "setup", "set", "fork.rebound=12"])
+    assert result.exit_code == 1 and "outside the allowed range" in result.output
+    out = run(db_path, "setup", "set", "fork.rebound=-2", "--why", "hold the front down")
+    assert "Targets: front_push_mid" in out
+
+    assert "change #1: fork.rebound 10 -> 8" in run(db_path, "history", "search", "hold front")
+    assert "No results recorded yet" in run(db_path, "history", "effects")
+
+
 def test_errors_are_reported_without_traceback(tmp_path):
     result = runner.invoke(app, ["--db", str(tmp_path / "e.db"), "lap", "add", "1:42.3"])
     assert result.exit_code == 1

@@ -130,6 +130,73 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX outcome_change ON outcome(change_id);
     """,
+    # v2: per-bike parameter ranges, symptom on changes, full-text search over notes.
+    """
+    CREATE TABLE param_range (
+        bike_id INTEGER NOT NULL REFERENCES bike(id),
+        param   TEXT NOT NULL,
+        min     REAL NOT NULL,
+        max     REAL NOT NULL,
+        CHECK (min <= max),
+        PRIMARY KEY (bike_id, param)
+    );
+
+    ALTER TABLE change ADD COLUMN symptom TEXT;  -- symptom id the change targets
+
+    -- One row per searchable note. Kept in sync by the triggers below.
+    CREATE VIRTUAL TABLE notes_fts USING fts5(
+        text,
+        kind UNINDEXED,        -- feedback | change | outcome
+        ref_id UNINDEXED,
+        bike_id UNINDEXED,
+        session_id UNINDEXED
+    );
+
+    CREATE TRIGGER feedback_fts_insert AFTER INSERT ON feedback BEGIN
+        INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+        SELECT new.text || ' ' || coalesce(new.symptom, ''), 'feedback', new.id, s.bike_id, new.session_id
+        FROM session s WHERE s.id = new.session_id;
+    END;
+
+    CREATE TRIGGER feedback_fts_update AFTER UPDATE ON feedback BEGIN
+        DELETE FROM notes_fts WHERE kind = 'feedback' AND ref_id = old.id;
+        INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+        SELECT new.text || ' ' || coalesce(new.symptom, ''), 'feedback', new.id, s.bike_id, new.session_id
+        FROM session s WHERE s.id = new.session_id;
+    END;
+
+    CREATE TRIGGER change_fts_insert AFTER INSERT ON change BEGIN
+        INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+        VALUES (
+            coalesce(new.symptom, '') || ' ' || coalesce(new.hypothesis, '') || ' ' ||
+            coalesce(new.reasoning, '') || ' ' || coalesce(new.watch_for, '') || ' ' ||
+            coalesce((SELECT group_concat(json_extract(value, '$.param'), ' ') FROM json_each(new.deltas)), ''),
+            'change', new.id, new.bike_id, new.session_id
+        );
+    END;
+
+    CREATE TRIGGER outcome_fts_insert AFTER INSERT ON outcome BEGIN
+        INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+        SELECT new.verdict || ' ' || coalesce(new.notes, ''), 'outcome', new.id, c.bike_id,
+               coalesce(new.session_id, c.session_id)
+        FROM change c WHERE c.id = new.change_id;
+    END;
+
+    -- Index anything logged before this migration.
+    INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+    SELECT f.text || ' ' || coalesce(f.symptom, ''), 'feedback', f.id, s.bike_id, f.session_id
+    FROM feedback f JOIN session s ON s.id = f.session_id;
+
+    INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+    SELECT coalesce(c.hypothesis, '') || ' ' || coalesce(c.reasoning, '') || ' ' || coalesce(c.watch_for, '') || ' ' ||
+           coalesce((SELECT group_concat(json_extract(value, '$.param'), ' ') FROM json_each(c.deltas)), ''),
+           'change', c.id, c.bike_id, c.session_id
+    FROM change c;
+
+    INSERT INTO notes_fts (text, kind, ref_id, bike_id, session_id)
+    SELECT o.verdict || ' ' || coalesce(o.notes, ''), 'outcome', o.id, c.bike_id, coalesce(o.session_id, c.session_id)
+    FROM outcome o JOIN change c ON c.id = o.change_id;
+    """,
 ]
 
 

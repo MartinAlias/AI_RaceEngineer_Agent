@@ -109,3 +109,15 @@ class Change(BaseModel):
     reasoning: str | None = None
     proposed_by: str
     created_at: str
+    symptom: str | None = None
+
+
+class Outcome(BaseModel):
+    id: int
+    change_id: int
+    session_id: int | None = None
+    verdict: str
+    lap_delta_ms: int | None = None
+    symptom_resolved: bool | None = None
+    notes: str | None = None
+    created_at: str

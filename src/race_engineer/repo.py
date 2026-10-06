@@ -7,8 +7,10 @@ import sqlite3
 from datetime import date as Date
 from typing import Any
 
-from . import setup_diff, tagging
-from .models import Bike, Change, Corner, Feedback, Lap, Session, Setup, Track, from_row
+from . import guide, ranges, setup_diff, tagging
+from .models import Bike, Change, Corner, Feedback, Lap, Outcome, Session, Setup, Track, from_row
+
+VERDICTS = ("better", "same", "worse")
 
 
 class RepoError(Exception):
@@ -17,6 +19,14 @@ class RepoError(Exception):
 
 class NotFound(RepoError):
     pass
+
+
+class RangeError(RepoError):
+    def __init__(self, problems: list[str]):
+        self.problems = problems
+        super().__init__(
+            "; ".join(problems) + ". Use --force to apply anyway, or set this bike's range with `re bike range`."
+        )
 
 
 # --- state (current bike / session / rider profile) -------------------------
@@ -52,7 +62,10 @@ def add_bike(
     year: int | None = None,
     notes: str | None = None,
     baseline: dict[str, Any] | None = None,
+    force: bool = False,
 ) -> Bike:
+    if not force and (problems := ranges.violations(ranges.default_ranges(), baseline or {})):
+        raise RangeError(problems)
     try:
         with conn:
             bike_id = conn.execute(
@@ -107,6 +120,37 @@ def set_baseline(conn: sqlite3.Connection, bike_id: int, setup_id: int | None = 
     with conn:
         conn.execute("UPDATE bike SET baseline_setup_id = ? WHERE id = ?", (setup.id, bike.id))
     return get_bike(conn, bike.id)
+
+
+def get_param_ranges(conn: sqlite3.Connection, bike_id: int) -> dict[str, ranges.Range]:
+    """Effective ranges for a bike: defaults, replaced by the bike's own ranges."""
+    merged = dict(ranges.default_ranges())
+    merged.update(bike_param_ranges(conn, bike_id))
+    return merged
+
+
+def bike_param_ranges(conn: sqlite3.Connection, bike_id: int) -> dict[str, ranges.Range]:
+    rows = conn.execute("SELECT param, min, max FROM param_range WHERE bike_id = ?", (bike_id,))
+    return {r["param"]: (r["min"], r["max"]) for r in rows}
+
+
+def set_param_range(conn: sqlite3.Connection, bike_id: int, param: str, low: float, high: float) -> None:
+    param = setup_diff.normalize_key(param)
+    if low > high:
+        raise RepoError(f"Minimum {low:g} is above maximum {high:g}.")
+    get_bike(conn, bike_id)
+    with conn:
+        conn.execute(
+            """INSERT INTO param_range (bike_id, param, min, max) VALUES (?, ?, ?, ?)
+               ON CONFLICT (bike_id, param) DO UPDATE SET min = excluded.min, max = excluded.max""",
+            (bike_id, param, low, high),
+        )
+
+
+def clear_param_range(conn: sqlite3.Connection, bike_id: int, param: str) -> None:
+    with conn:
+        conn.execute("DELETE FROM param_range WHERE bike_id = ? AND param = ?",
+                     (bike_id, setup_diff.normalize_key(param)))
 
 
 # --- tracks --------------------------------------------------------------
@@ -262,15 +306,23 @@ def change_setup(
     watch_for: str | None = None,
     reasoning: str | None = None,
     session_id: int | None = None,
+    symptom: str | None = None,
+    force: bool = False,
 ) -> Change:
-    """Apply assignments to the bike's current setup, creating a new setup and a change record."""
+    """Apply assignments to the bike's current setup, creating a new setup and a change record.
+
+    Changed values must be inside the bike's allowed ranges unless force is set.
+    """
     bike = get_bike(conn, bike_id)
     before = get_setup(conn, bike.current_setup_id)
     params, deltas = setup_diff.apply_assignments(before.params, assignments)
     if not deltas:
         raise RepoError("Nothing changed: those values match the current setup.")
+    changed = [d["param"] for d in deltas]
+    if not force and (problems := ranges.violations(get_param_ranges(conn, bike.id), params, changed)):
+        raise RangeError(problems)
     return _record_change(conn, bike, before, params, deltas, note, proposed_by, hypothesis, watch_for,
-                          reasoning, session_id)
+                          reasoning, session_id, symptom)
 
 
 def revert_setup(
@@ -320,15 +372,16 @@ def _record_change(
     watch_for: str | None,
     reasoning: str | None,
     session_id: int | None,
+    symptom: str | None = None,
 ) -> Change:
     with conn:
         after_id = _insert_setup(conn, bike.id, before.id, params, note)
         change_id = conn.execute(
             """INSERT INTO change (bike_id, session_id, before_setup_id, after_setup_id, deltas,
-                                   hypothesis, watch_for, reasoning, proposed_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   hypothesis, watch_for, reasoning, proposed_by, symptom)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (bike.id, session_id, before.id, after_id, json.dumps(deltas), hypothesis, watch_for,
-             reasoning, proposed_by),
+             reasoning, proposed_by, symptom),
         ).lastrowid
         conn.execute("UPDATE bike SET current_setup_id = ? WHERE id = ?", (after_id, bike.id))
     return get_change(conn, change_id)
@@ -389,7 +442,8 @@ def add_feedback(
     symptom: str | None = None,
     severity: int | None = None,
 ) -> Feedback:
-    """Store feedback. Tags not given explicitly are filled from keywords in the text."""
+    """Store feedback. Tags not given explicitly are filled from the text: end, phase and
+    corners by keyword, symptom from the symptom guide when one clearly fits."""
     get_session(conn, session_id)
     if end not in (None, *tagging.ENDS):
         raise RepoError(f"End must be one of: {', '.join(tagging.ENDS)}.")
@@ -398,20 +452,70 @@ def add_feedback(
     if severity is not None and not 1 <= severity <= 5:
         raise RepoError("Severity must be between 1 and 5.")
     auto = tagging.tag(text)
+    end, phase = end or auto.end, phase or auto.phase
     corners = [c.upper() for c in corners] if corners else auto.corners
+    symptom = symptom or guide.best_symptom(text, end=end, phase=phase)
     with conn:
         feedback_id = conn.execute(
             """INSERT INTO feedback (session_id, text, "end", phase, corners, symptom, severity)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, text, end or auto.end, phase or auto.phase, json.dumps(corners), symptom, severity),
+            (session_id, text, end, phase, json.dumps(corners), symptom, severity),
         ).lastrowid
+    return get_feedback(conn, feedback_id)
+
+
+def get_feedback(conn: sqlite3.Connection, feedback_id: int) -> Feedback:
     row = conn.execute("SELECT * FROM feedback WHERE id = ?", (feedback_id,)).fetchone()
+    if not row:
+        raise NotFound(f"No feedback #{feedback_id}.")
     return from_row(Feedback, row, ("corners",))
 
 
 def list_feedback(conn: sqlite3.Connection, session_id: int) -> list[Feedback]:
     rows = conn.execute("SELECT * FROM feedback WHERE session_id = ? ORDER BY id", (session_id,))
     return [from_row(Feedback, r, ("corners",)) for r in rows]
+
+
+def latest_symptom(conn: sqlite3.Connection, session_id: int) -> str | None:
+    """Symptom of the most recent tagged feedback in a session (what a change usually targets)."""
+    row = conn.execute(
+        "SELECT symptom FROM feedback WHERE session_id = ? AND symptom IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    return row["symptom"] if row else None
+
+
+# --- outcomes ------------------------------------------------------------
+
+def add_outcome(
+    conn: sqlite3.Connection,
+    change_id: int,
+    verdict: str,
+    *,
+    session_id: int | None = None,
+    lap_delta_ms: int | None = None,
+    symptom_resolved: bool | None = None,
+    notes: str | None = None,
+) -> Outcome:
+    """Record how a change worked out, tested in session_id."""
+    get_change(conn, change_id)
+    if verdict not in VERDICTS:
+        raise RepoError(f"Verdict must be one of: {', '.join(VERDICTS)}.")
+    if session_id is not None:
+        get_session(conn, session_id)
+    resolved = None if symptom_resolved is None else int(symptom_resolved)
+    with conn:
+        outcome_id = conn.execute(
+            """INSERT INTO outcome (change_id, session_id, verdict, lap_delta_ms, symptom_resolved, notes)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (change_id, session_id, verdict, lap_delta_ms, resolved, notes),
+        ).lastrowid
+    return from_row(Outcome, conn.execute("SELECT * FROM outcome WHERE id = ?", (outcome_id,)).fetchone())
+
+
+def list_outcomes(conn: sqlite3.Connection, change_id: int) -> list[Outcome]:
+    rows = conn.execute("SELECT * FROM outcome WHERE change_id = ? ORDER BY id", (change_id,))
+    return [from_row(Outcome, r) for r in rows]
 
 
 # --- helpers -------------------------------------------------------------

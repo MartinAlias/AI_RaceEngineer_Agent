@@ -22,28 +22,31 @@ class Param:
     label: str
     unit: str
     integer: bool = False
+    hint: str = ""  # what a higher value means
 
+
+_CLICKS = "more = softer (less damping)"
 
 PARAMETERS: dict[str, Param] = {
-    "fork.preload": Param("Fork preload", "mm"),
-    "fork.compression": Param("Fork compression", "clicks out", integer=True),
-    "fork.rebound": Param("Fork rebound", "clicks out", integer=True),
+    "fork.preload": Param("Fork preload", "mm", hint="more = more preload, front sits higher"),
+    "fork.compression": Param("Fork compression", "clicks out", integer=True, hint=_CLICKS),
+    "fork.rebound": Param("Fork rebound", "clicks out", integer=True, hint=_CLICKS),
     "fork.spring_rate": Param("Fork spring rate", "N/mm"),
-    "fork.oil_level": Param("Fork oil level", "mm"),
-    "fork.height": Param("Fork tubes above top clamp", "mm"),
-    "shock.preload": Param("Shock preload", "mm"),
-    "shock.hs_compression": Param("Shock high-speed compression", "turns out"),
-    "shock.ls_compression": Param("Shock low-speed compression", "clicks out", integer=True),
-    "shock.rebound": Param("Shock rebound", "clicks out", integer=True),
+    "fork.oil_level": Param("Fork oil level", "mm", hint="more = more air-spring ramp-up near full travel"),
+    "fork.height": Param("Fork tubes above top clamp", "mm", hint="more = front lower, quicker steering"),
+    "shock.preload": Param("Shock preload", "mm", hint="more = more preload, rear sits higher"),
+    "shock.hs_compression": Param("Shock high-speed compression", "turns out", hint=_CLICKS),
+    "shock.ls_compression": Param("Shock low-speed compression", "clicks out", integer=True, hint=_CLICKS),
+    "shock.rebound": Param("Shock rebound", "clicks out", integer=True, hint=_CLICKS),
     "shock.spring_rate": Param("Shock spring rate", "N/mm"),
-    "shock.ride_height": Param("Shock length / ride height", "mm"),
+    "shock.ride_height": Param("Rear ride height adjuster", "mm", hint="more = rear higher"),
     "sag.front_static": Param("Front static sag", "mm"),
     "sag.front_rider": Param("Front rider sag", "mm"),
     "sag.rear_static": Param("Rear static sag", "mm"),
     "sag.rear_rider": Param("Rear rider sag", "mm"),
-    "gearing.front_sprocket": Param("Front sprocket", "teeth", integer=True),
-    "gearing.rear_sprocket": Param("Rear sprocket", "teeth", integer=True),
-    "gearing.chain_links": Param("Chain length", "links", integer=True),
+    "gearing.front_sprocket": Param("Front sprocket", "teeth", integer=True, hint="more = taller gearing"),
+    "gearing.rear_sprocket": Param("Rear sprocket", "teeth", integer=True, hint="more = shorter gearing"),
+    "gearing.chain_links": Param("Chain length", "links", integer=True, hint="more = longer wheelbase"),
     "tire.front_cold": Param("Front pressure (cold)", "bar"),
     "tire.rear_cold": Param("Rear pressure (cold)", "bar"),
     "tire.front_hot": Param("Front pressure (hot)", "bar"),
@@ -94,7 +97,7 @@ def parse_assignment(text: str) -> Assignment:
     param = PARAMETERS.get(key)
     if param and param.integer and not number.is_integer():
         raise SetupError(f"{key} must be a whole number ({param.unit}), got '{raw}'.")
-    return Assignment(key, _tidy(number), relative)
+    return Assignment(key, tidy(number), relative)
 
 
 def apply_assignments(params: dict[str, Any], assignments: list[Assignment]) -> tuple[dict[str, Any], list[dict]]:
@@ -108,7 +111,7 @@ def apply_assignments(params: dict[str, Any], assignments: list[Assignment]) -> 
                     f"Can't change {a.key} by {format_number(a.value, signed=True)}: it has no current value. "
                     f"Set it first with {a.key}=<value>."
                 )
-            new[a.key] = _tidy(current + a.value)
+            new[a.key] = tidy(current + a.value)
         else:
             new[a.key] = a.value
     return new, diff(params, new)
@@ -150,10 +153,10 @@ def format_delta(delta: dict) -> str:
     before, after = delta["from"], delta["to"]
     text = f"{delta['param']} {format_number(before)} -> {format_number(after)}"
     if isinstance(before, (int, float)) and isinstance(after, (int, float)):
-        text += f" ({format_number(_tidy(after - before), signed=True)})"
+        text += f" ({format_number(tidy(after - before), signed=True)})"
     return text
 
 
-def _tidy(value: float) -> int | float:
+def tidy(value: float) -> int | float:
     value = round(value, 4)
     return int(value) if float(value).is_integer() else value
