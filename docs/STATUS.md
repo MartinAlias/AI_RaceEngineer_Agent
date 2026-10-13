@@ -20,18 +20,25 @@ Decisions the rider made:
 - The rider uses a **phone lap timer app**, so lap import targets phone app CSV exports.
 - The front end is a **simple local web page**, not a full web app.
 
+The rider's setup (told on 2026-10-13):
+- **Main bike:** 2005 Suzuki GSX-R750 with Öhlins suspension. Öhlins clickers are counted out from fully closed, like the rest of the app. The bike isn't in the rider's database yet; the rider adds it with `re bike add` (Claude Code never touches the real database).
+- **Lap timing:** Harry's LapTimer on the phone, plus a small IR (infrared beacon) lap timer on the bike.
+
 Changes we want to make next, in order:
-1. **Real lap timer CSV.** Ask the rider which app (RaceChrono or Harry's LapTimer?) and get one export. Add it as a test fixture and fix `lapimport.py` detection if needed.
-2. **Use it at a track day** (logging, `re pressure`, `re lap import`, `re session sectors`, `re web`, `re export`) and note what's awkward.
-3. **Likely follow-ups from that** (do only what the rider confirms they want):
+1. **Real lap timer files.** Get one Harry's LapTimer CSV export from the rider (its column layout isn't documented anywhere we found). Add it as a test fixture and fix `lapimport.py` detection if needed. Find out whether the IR lap timer can export laps (brand and model?); if it can, support its file too. If not, its times go in with `re lap add`.
+2. **Set up the GSX-R750:** the rider's Öhlins clicker counts and adjuster travel (`re bike range`), the baseline setup, and tire hot targets.
+3. **Use it at a track day** (logging, `re pressure`, `re lap import`, `re session sectors`, `re web`, `re export`) and note what's awkward.
+4. **Likely follow-ups from that** (do only what the rider confirms they want):
    - a lap time chart on the web session page;
    - map sectors to corners so analysis can say "T3" instead of "S2";
    - edit or delete a wrongly logged lap, feedback or session;
    - the rider reviews `knowledge/symptoms.yaml` against their own experience.
-4. **Live API trial** (phase 7): API key, real `re engineer` conversations, then tune `agent/prompts.py` from the transcripts.
+5. **Live API trial** (phase 7): API key, real `re engineer` conversations, then tune `agent/prompts.py` from the transcripts.
 
 Open questions for the rider:
-- Which phone lap timer app, and can they share an export?
+- Can they share a Harry's LapTimer CSV export from a session?
+- The IR lap timer's brand and model, and whether it can export laps (and which one they trust when the two disagree).
+- Which Öhlins units (fork cartridge or full forks, shock model), and how many clicks each adjuster has.
 - Their tire maker's hot pressure windows, to set with `re tire target`.
 - Their bike's real clicker and adjuster ranges, to set with `re bike range`.
 
