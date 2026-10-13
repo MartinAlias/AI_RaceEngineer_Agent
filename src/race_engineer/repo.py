@@ -8,9 +8,11 @@ from datetime import date as Date
 from typing import Any
 
 from . import guide, ranges, setup_diff, tagging
-from .models import Bike, Change, Corner, Feedback, Lap, Outcome, Session, Setup, Track, from_row
+from .models import Bike, Change, Corner, Feedback, Lap, Outcome, Session, Setup, TireTarget, Track, from_row
 
 VERDICTS = ("better", "same", "worse")
+POSITIONS = ("front", "rear")
+HOT_PLAUSIBLE = (1.0, 4.0)  # bar: anything outside is a misread gauge or the wrong unit
 
 
 class RepoError(Exception):
@@ -281,6 +283,86 @@ def list_sessions(
     return [from_row(Session, r) for r in rows]
 
 
+def previous_session(conn: sqlite3.Connection, session: Session) -> Session | None:
+    """The bike's session before this one (by date, then id)."""
+    row = conn.execute(
+        """SELECT * FROM session WHERE bike_id = ? AND (date < ? OR (date = ? AND id < ?))
+           ORDER BY date DESC, id DESC LIMIT 1""",
+        (session.bike_id, session.date, session.date, session.id),
+    ).fetchone()
+    return from_row(Session, row) if row else None
+
+
+def record_hot_pressures(
+    conn: sqlite3.Connection,
+    session_id: int,
+    *,
+    front: float | None = None,
+    rear: float | None = None,
+    force: bool = False,
+) -> Session:
+    """Store hot pressures (bar) measured after a session.
+
+    A reading that is implausible, or not above the cold pressure the session ran,
+    is refused unless force is set: it is almost always a misread gauge or psi typed as bar.
+    """
+    if front is None and rear is None:
+        raise RepoError("Give a front and/or rear hot pressure.")
+    session = get_session(conn, session_id)
+    cold = get_setup(conn, session.setup_id).params
+    problems = []
+    for position, hot in (("front", front), ("rear", rear)):
+        if hot is None:
+            continue
+        low, high = HOT_PLAUSIBLE
+        if not low <= hot <= high:
+            problems.append(f"{position} hot {hot:g} bar is not a believable tire pressure")
+            continue
+        cold_value = cold.get(f"tire.{position}_cold")
+        if isinstance(cold_value, (int, float)) and hot <= cold_value:
+            problems.append(f"{position} hot {hot:g} bar is not above the {cold_value:g} bar cold pressure "
+                            f"this session ran (setup #{session.setup_id})")
+    if problems and not force:
+        raise RepoError("; ".join(problems) + ". Check the reading and the unit (psi vs bar), "
+                        "or use --force if it is right.")
+    with conn:
+        conn.execute("UPDATE session SET front_hot = COALESCE(?, front_hot), rear_hot = COALESCE(?, rear_hot) "
+                     "WHERE id = ?", (front, rear, session.id))
+    return get_session(conn, session.id)
+
+
+# --- tire hot-pressure targets -------------------------------------------
+
+def set_tire_target(conn: sqlite3.Connection, name: str, position: str, low: float, high: float) -> TireTarget:
+    if position not in POSITIONS:
+        raise RepoError("Position must be front or rear.")
+    if low > high:
+        raise RepoError(f"Minimum {low:g} is above maximum {high:g}.")
+    with conn:
+        conn.execute(
+            """INSERT INTO tire_target (name, position, hot_min, hot_max) VALUES (?, ?, ?, ?)
+               ON CONFLICT (name, position) DO UPDATE SET hot_min = excluded.hot_min, hot_max = excluded.hot_max""",
+            (name.strip(), position, low, high),
+        )
+    return get_tire_target(conn, name.strip(), position)
+
+
+def get_tire_target(conn: sqlite3.Connection, name: str | None, position: str) -> TireTarget | None:
+    if not name:
+        return None
+    row = conn.execute("SELECT * FROM tire_target WHERE name = ? AND position = ?", (name.strip(), position)).fetchone()
+    return from_row(TireTarget, row) if row else None
+
+
+def list_tire_targets(conn: sqlite3.Connection) -> list[TireTarget]:
+    return [from_row(TireTarget, r) for r in conn.execute("SELECT * FROM tire_target ORDER BY name, position")]
+
+
+def session_tire_targets(conn: sqlite3.Connection, session: Session) -> dict[str, TireTarget | None]:
+    return {"front": get_tire_target(conn, session.tire_front, "front"),
+            "rear": get_tire_target(conn, session.tire_rear, "rear")}
+
+
 # --- setups and changes --------------------------------------------------
 
 def get_setup(conn: sqlite3.Connection, setup_id: int) -> Setup:
@@ -308,13 +390,27 @@ def change_setup(
     session_id: int | None = None,
     symptom: str | None = None,
     force: bool = False,
+    ran_in_session_id: int | None = None,
 ) -> Change:
     """Apply assignments to the bike's current setup, creating a new setup and a change record.
 
     Changed values must be inside the bike's allowed ranges unless force is set.
+
+    ran_in_session_id is for a change already on the bike when that session ran (made in
+    the pit lane after the session was started): the session is moved to the new setup and
+    the change is linked to the session before it, so results compare against that one.
     """
     bike = get_bike(conn, bike_id)
     before = get_setup(conn, bike.current_setup_id)
+    if ran_in_session_id is not None:
+        ran = get_session(conn, ran_in_session_id)
+        if ran.bike_id != bike.id:
+            raise RepoError(f"Session #{ran.id} is for a different bike.")
+        if ran.setup_id != before.id:
+            raise RepoError(f"Session #{ran.id} ran setup #{ran.setup_id}, but the bike is now on setup #{before.id}; "
+                            "a change can only be added to the latest session on the current setup.")
+        previous = previous_session(conn, ran)
+        session_id = previous.id if previous else None
     params, deltas = setup_diff.apply_assignments(before.params, assignments)
     if not deltas:
         raise RepoError("Nothing changed: those values match the current setup.")
@@ -322,7 +418,7 @@ def change_setup(
     if not force and (problems := ranges.violations(get_param_ranges(conn, bike.id), params, changed)):
         raise RangeError(problems)
     return _record_change(conn, bike, before, params, deltas, note, proposed_by, hypothesis, watch_for,
-                          reasoning, session_id, symptom)
+                          reasoning, session_id, symptom, ran_in_session_id)
 
 
 def revert_setup(
@@ -373,9 +469,12 @@ def _record_change(
     reasoning: str | None,
     session_id: int | None,
     symptom: str | None = None,
+    ran_in_session_id: int | None = None,
 ) -> Change:
     with conn:
         after_id = _insert_setup(conn, bike.id, before.id, params, note)
+        if ran_in_session_id is not None:
+            conn.execute("UPDATE session SET setup_id = ? WHERE id = ?", (after_id, ran_in_session_id))
         change_id = conn.execute(
             """INSERT INTO change (bike_id, session_id, before_setup_id, after_setup_id, deltas,
                                    hypothesis, watch_for, reasoning, proposed_by, symptom)

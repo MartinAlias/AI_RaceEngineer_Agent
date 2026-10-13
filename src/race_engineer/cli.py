@@ -24,12 +24,14 @@ session_app = typer.Typer(help="Start and review sessions.", no_args_is_help=Tru
 setup_app = typer.Typer(help="Show, change, compare and revert setups.", no_args_is_help=True)
 lap_app = typer.Typer(help="Log lap times.", no_args_is_help=True)
 history_app = typer.Typer(help="Search past notes and see which changes worked.", no_args_is_help=True)
+tire_app = typer.Typer(help="Tire makers' hot pressure targets.", no_args_is_help=True)
 app.add_typer(bike_app, name="bike")
 app.add_typer(track_app, name="track")
 app.add_typer(session_app, name="session")
 app.add_typer(setup_app, name="setup")
 app.add_typer(lap_app, name="lap")
 app.add_typer(history_app, name="history")
+app.add_typer(tire_app, name="tire")
 
 console = Console()
 _db_path: Optional[Path] = None
@@ -302,6 +304,8 @@ def session_show(session_id: Optional[int] = typer.Argument(None, help="Default:
             f"rear {s.tire_rear or '-'} ({_num(s.tire_rear_laps, ' laps')})\n"
             f"Setup #{s.setup_id}"
         )
+        if s.front_hot is not None or s.rear_hot is not None:
+            console.print(_pressure_line(conn, s))
 
         laps = repo.list_laps(conn, s.id)
         if laps:
@@ -347,19 +351,32 @@ def setup_set(
         None, help="Symptom id this targets (see `re guide`). Default: the latest feedback's symptom."
     ),
     force: bool = typer.Option(False, "--force", help="Apply even if a value is outside the allowed range."),
+    this_session: bool = typer.Option(
+        False, "--this-session",
+        help="The change was already on the bike for the active session (made in the pit lane after starting it).",
+    ),
 ) -> None:
     """Change the current setup. Creates a new setup; the old one is kept."""
     with _open() as conn:
         bike = repo.current_bike(conn)
         parsed = [setup_diff.parse_assignment(a) for a in assignments]
         session_id = _active_session_id(conn, bike.id)
+        ran_in = None
+        if this_session:
+            if session_id is None:
+                raise repo.RepoError("--this-session needs an active session for this bike.")
+            ran_in = session_id
+            previous = repo.previous_session(conn, repo.get_session(conn, session_id))
+            session_id = previous.id if previous else None
         if symptom:
             guide.get_symptom(symptom)
         elif session_id:
             symptom = repo.latest_symptom(conn, session_id)
         change = repo.change_setup(conn, bike.id, parsed, note=note, hypothesis=why, session_id=session_id,
-                                   symptom=symptom, force=force)
+                                   symptom=symptom, force=force, ran_in_session_id=ran_in)
         console.print(f"Setup #{change.before_setup_id} -> [bold]#{change.after_setup_id}[/bold] (change #{change.id})")
+        if ran_in:
+            console.print(f"Session #{ran_in} now runs setup #{change.after_setup_id}.")
         for delta in change.deltas:
             console.print(f"  {setup_diff.format_delta(delta)}")
         if change.symptom:
@@ -491,6 +508,63 @@ def feedback(
                 f"corners={','.join(f.corners)}" if f.corners else "", f"symptom={f.symptom}" if f.symptom else ""]
         console.print(f"Feedback #{f.id} saved to session #{session.id}. " + " ".join(t for t in tags if t))
         console.print("Run [cyan]re advise[/cyan] for likely causes and what to try.")
+
+
+@app.command()
+def pressure(
+    front: Optional[str] = typer.Option(None, help="Front hot pressure: bar (2.45) or psi (35.5psi)."),
+    rear: Optional[str] = typer.Option(None, help="Rear hot pressure: bar or psi."),
+    session_id: Optional[int] = typer.Option(None, "--session", help="Default: the active session."),
+    force: bool = typer.Option(False, "--force", help="Save even if the reading looks wrong."),
+) -> None:
+    """Record hot tire pressures measured right after a session."""
+    with _open() as conn:
+        session = repo.get_session(conn, session_id) if session_id else repo.current_session(conn)
+        values = {k: setup_diff.parse_pressure(v)[0] if v else None for k, v in (("front", front), ("rear", rear))}
+        session = repo.record_hot_pressures(conn, session.id, **values, force=force)
+        console.print(f"Session #{session.id}: " + _pressure_line(conn, session))
+
+
+@tire_app.command("target")
+def tire_target(
+    name: str = typer.Argument(..., help='Tire as you enter it on sessions, e.g. "SC1".'),
+    position: str = typer.Argument(..., help="front or rear."),
+    low: str = typer.Argument(..., help="Lowest good hot pressure (bar or psi)."),
+    high: str = typer.Argument(..., help="Highest good hot pressure (bar or psi)."),
+) -> None:
+    """Set the tire maker's hot pressure window for a tire."""
+    with _open() as conn:
+        target = repo.set_tire_target(conn, name, position.lower(), setup_diff.parse_pressure(low)[0],
+                                      setup_diff.parse_pressure(high)[0])
+        console.print(f"{escape(target.name)} {target.position}: hot target {target.hot_min:g} to {target.hot_max:g} bar.")
+
+
+@tire_app.command("list")
+def tire_list() -> None:
+    """List tire hot pressure targets."""
+    with _open() as conn:
+        table = Table("Tire", "Position", "Hot min (bar)", "Hot max (bar)")
+        for t in repo.list_tire_targets(conn):
+            table.add_row(escape(t.name), t.position, f"{t.hot_min:g}", f"{t.hot_max:g}")
+        console.print(table)
+
+
+def _pressure_line(conn: sqlite3.Connection, session) -> str:
+    """e.g. "front cold 2.0 -> hot 2.45 bar (target 2.3-2.5)"."""
+    cold = repo.get_setup(conn, session.setup_id).params
+    targets = repo.session_tire_targets(conn, session)
+    parts = []
+    for position, hot in (("front", session.front_hot), ("rear", session.rear_hot)):
+        if hot is None:
+            continue
+        text = f"{position} cold {setup_diff.format_number(cold.get(f'tire.{position}_cold'))} -> hot {hot:g} bar"
+        target = targets[position]
+        if target:
+            verdict = ("[yellow]above target[/yellow]" if hot > target.hot_max
+                       else "[yellow]below target[/yellow]" if hot < target.hot_min else "in target")
+            text += f" (target {target.hot_min:g}-{target.hot_max:g}, {verdict})"
+        parts.append(text)
+    return "Hot pressures: " + "; ".join(parts)
 
 
 @app.command()

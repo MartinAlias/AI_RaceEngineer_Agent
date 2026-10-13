@@ -35,7 +35,8 @@ def test_guide_rejects_fractional_clicks():
 
 @pytest.mark.parametrize("text, expected", [
     ("front feels slippery mid corner T3, T7", "front_push_mid"),
-    ("front tucks on the brakes at turn in", "front_push_entry"),  # two phases, both covered
+    ("front tucks on the brakes at turn in", "front_push_entry"),
+    ("front feels vague and wants to run wide mid corner, worst in T3 and T10", "front_understeer_mid"),  # two phases, both covered
     ("rear spins when I pick up the throttle", "rear_spin_exit"),
     ("bike runs wide on exit", "runs_wide_exit"),
     ("bouncing off the limiter before the braking marker", "gearing_short"),

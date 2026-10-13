@@ -310,3 +310,57 @@ def test_tool_schemas_are_well_formed():
     for t in TOOLS:
         assert t["description"] and t["input_schema"]["type"] == "object"
         assert t["input_schema"]["additionalProperties"] is False
+
+
+def test_record_hot_pressures_tool(conn, push):
+    _, _, session, _ = push  # front cold 2.1
+    conn.execute("UPDATE session SET tire_front = 'SC1' WHERE id = ?", (session.id,))
+    repo.set_tire_target(conn, "SC1", "front", 2.3, 2.5)
+    io = ScriptedIO()
+    engineer, client = make(conn, push, [
+        reply(tool("record_hot_pressures", {"front": "28psi"}, id="bad"), stop="tool_use"),
+        reply(tool("record_hot_pressures", {"front": "36.5psi"}, id="good"), stop="tool_use"),
+        reply(tool("get_session_context", {}, id="ctx"), stop="tool_use"),
+        reply(text("ok")),
+    ], io)
+    engineer.run("go")
+    bad = tool_results(client.requests[1])["bad"]
+    assert bad["is_error"] and "not above the 2.1 bar cold" in bad["content"]
+    good = json.loads(tool_results(client.requests[2])["good"]["content"])
+    assert good["tire_pressures_bar"]["front"] == {"cold": 2.1, "hot": 2.52, "hot_target": [2.3, 2.5]}
+    assert io.notices == [f"Saved hot pressures for session #{session.id}: front 2.52 bar."]
+    context = json.loads(tool_results(client.requests[3])["ctx"]["content"])
+    assert context["session"]["tire_pressures_bar"]["front"]["hot"] == 2.52
+
+
+def test_log_rider_change_tool(conn, push):
+    bike, track, fp1, _ = push
+    fp2 = repo.start_session(conn, bike.id, track.id, type="FP2", date=fp1.date)
+    client = FakeClient([
+        reply(tool("log_rider_change", {"changes": [{"param": "tire.front_cold", "value": "32psi"}],
+                                        "already_on_bike_this_session": True, "why": "felt vague"}, id="a"),
+              stop="tool_use"),
+        reply(tool("get_setup_history", {}, id="h"), stop="tool_use"),
+        reply(text("ok")),
+    ])
+    io = ScriptedIO(confirms=[True])
+    Engineer(conn, client, io, bike_id=bike.id, session_id=fp2.id).run("go")
+    assert io.questions[0] == "Record your change tire.front_cold 2.1 -> 2.21 (+0.11) (already on the bike this session)?"
+    result = json.loads(tool_results(client.requests[1])["a"]["content"])
+    assert result["status"] == "recorded" and result["made_after_session_id"] == fp1.id
+    change = repo.get_change(conn, result["change_id"])
+    assert change.proposed_by == "rider" and repo.get_session(conn, fp2.id).setup_id == change.after_setup_id
+    history = json.loads(tool_results(client.requests[2])["h"]["content"])
+    assert history[0]["made_after_session"] == {"session_id": fp1.id, "date": fp1.date, "type": "FP1"}
+
+
+def test_log_rider_change_declined(conn, push):
+    bike = push[0]
+    engineer, client = make(conn, push, [
+        reply(tool("log_rider_change", {"changes": [{"param": "fork.rebound", "step": -1}],
+                                        "already_on_bike_this_session": False}, id="a"), stop="tool_use"),
+        reply(text("ok")),
+    ], ScriptedIO(confirms=[False]))
+    engineer.run("go")
+    assert json.loads(tool_results(client.requests[1])["a"]["content"])["status"] == "not recorded"
+    assert repo.list_changes(conn, bike_id=bike.id) == []

@@ -1,4 +1,4 @@
-﻿"""SQLite connection and schema migrations.
+"""SQLite connection and schema migrations.
 
 Migrations are applied in order and tracked with PRAGMA user_version, so new
 phases only ever append to MIGRATIONS.
@@ -213,6 +213,30 @@ MIGRATIONS: list[str] = [
         messages    TEXT NOT NULL,  -- JSON transcript, for review
         started_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
+    """,
+    # v4: hot tire pressures as session measurements, and tire makers' hot targets.
+    """
+    ALTER TABLE session ADD COLUMN front_hot REAL;  -- bar, measured right after the session
+    ALTER TABLE session ADD COLUMN rear_hot REAL;
+
+    CREATE TABLE tire_target (
+        name     TEXT NOT NULL COLLATE NOCASE,  -- as entered on sessions, e.g. "SC1"
+        position TEXT NOT NULL CHECK (position IN ('front', 'rear')),
+        hot_min  REAL NOT NULL,                 -- bar
+        hot_max  REAL NOT NULL,
+        CHECK (hot_min <= hot_max),
+        PRIMARY KEY (name, position)
+    );
+
+    -- Hot pressures used to be logged as setup changes after a session; copy them over.
+    UPDATE session SET front_hot = (
+        SELECT json_extract(d.value, '$.to') FROM change c, json_each(c.deltas) d
+        WHERE c.session_id = session.id AND json_extract(d.value, '$.param') = 'tire.front_hot'
+        ORDER BY c.id DESC LIMIT 1);
+    UPDATE session SET rear_hot = (
+        SELECT json_extract(d.value, '$.to') FROM change c, json_each(c.deltas) d
+        WHERE c.session_id = session.id AND json_extract(d.value, '$.param') = 'tire.rear_hot'
+        ORDER BY c.id DESC LIMIT 1);
     """,
 ]
 

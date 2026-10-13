@@ -53,7 +53,7 @@
   name: Front slides / feels slippery mid corner
   end: front
   phases: [mid]
-  keywords: [push, tuck, wash, slid, slip, "lose the front", "losing the front", "no front grip", vague, "no feel"]
+  keywords: [push, tuck, wash, slid, slip, "lose the front", "losing the front", "no front grip", "no feel"]
   follow_up:
     - Is it at maximum lean only, or from the moment you release the brake?
     - Does the front feel like it rises or "floats" when you come off the brakes?
@@ -82,6 +82,40 @@
       checks: [Front rider sag below about 30 mm, Front feels harsh over mid-corner bumps]
       adjustments:
         - {param: fork.preload, step: -1, effect: "Less preload, front settles into its stroke"}
+
+- id: front_understeer_mid
+  name: Front feels vague / runs wide mid corner (understeer)
+  end: front
+  phases: [mid]
+  keywords: [vague, wide, understeer, "won't hold", "wont hold", "doesn't hold", "hold a line", "hold the line", "no feel", numb]
+  follow_up:
+    - Is it at full lean waiting for the throttle, or as soon as you come off the brakes?
+    - Was it there from the first lap, or did it get worse as the session went on?
+    - What were the hot front pressures when you came in?
+    - Does the bike also feel slow to turn in?
+  causes:
+    - description: Front hot pressure above the tire's window (worse on a hot track or as the session goes on)
+      likelihood: high
+      checks: [Hot front pressure above the tire maker's hot target, Gets worse lap by lap, Same cold pressure as a cooler day]
+      adjustments:
+        - {param: tire.front_cold, step: -0.1, effect: "Lower hot pressure, bigger contact patch and more feel"}
+    - description: Not enough weight on the front at lean (front too high or rear too low)
+      likelihood: high
+      checks: [Also slow to turn in, Rear rider sag on the high side, Rear squats on a neutral throttle]
+      adjustments:
+        - {param: fork.height, step: 2, effect: "Lowers the front, more weight on the front tire"}
+        - {param: shock.ride_height, step: 2, effect: "Raises the rear, moves weight forward"}
+    - description: Fork too stiff to settle at lean, so the tire doesn't conform
+      likelihood: medium
+      checks: [Front rider sag below about 30 mm, Front feels harsh over mid-corner bumps]
+      adjustments:
+        - {param: fork.preload, step: -1, effect: "Less preload, front settles into its stroke"}
+        - {param: fork.compression, step: 2, effect: "Softer compression, front follows the surface"}
+    - description: Front pressure too low, so the carcass squirms and the front feels numb
+      likelihood: low
+      checks: [Hot front pressure below the tire maker's hot target, Front also moves around on the brakes]
+      adjustments:
+        - {param: tire.front_cold, step: 0.1, effect: "Supports the carcass, sharper response"}
 
 - id: front_push_exit
   name: Front loses grip / pushes when picking up the throttle

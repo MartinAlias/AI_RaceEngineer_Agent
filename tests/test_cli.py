@@ -109,3 +109,29 @@ def test_errors_are_reported_without_traceback(tmp_path):
     result = runner.invoke(app, ["--db", str(tmp_path / "e.db"), "lap", "add", "1:42.3"])
     assert result.exit_code == 1
     assert "No active session" in result.output
+
+
+def test_pressures_targets_and_pit_lane_change(tmp_path):
+    db_path = tmp_path / "cli5.db"
+    run(db_path, "bike", "add", "R6", "--set", "tire.front_cold=2.1", "--set", "tire.rear_cold=1.6")
+    run(db_path, "track", "add", "Brno")
+    run(db_path, "tire", "target", "SC1", "front", "2.3", "2.5")
+    assert "SC1" in run(db_path, "tire", "list")
+    run(db_path, "session", "start", "--track", "Brno", "--type", "FP1", "--tire-front", "SC1")
+
+    result = runner.invoke(app, ["--db", str(db_path), "pressure", "--front", "28psi"])
+    assert result.exit_code == 1 and "not above the 2.1 bar cold" in result.output
+    out = run(db_path, "pressure", "--front", "37psi", "--rear", "1.85")
+    assert "front cold 2.1 -> hot 2.55 bar (target 2.3-2.5, above target)" in out
+    assert "rear cold 1.6 -> hot 1.85 bar" in out
+    assert "hot 2.55 bar" in run(db_path, "session", "show")
+
+    result = runner.invoke(app, ["--db", str(db_path), "setup", "set", "tire.front_hot=2.4"])
+    assert result.exit_code == 1 and "re pressure" in result.output
+
+    run(db_path, "session", "start", "--track", "Brno", "--type", "FP2", "--tire-front", "SC1")
+    out = run(db_path, "setup", "set", "tire.front_cold=29psi", "--this-session", "--why", "too hot in FP1")
+    assert "tire.front_cold 2.1 -> 2 (-0.1)" in out and "Session #2 now runs setup #2" in out
+    run(db_path, "lap", "add", "2:01.000")
+    out = run(db_path, "outcome", "better")
+    assert "Change #1" in out and "ran setup" not in out

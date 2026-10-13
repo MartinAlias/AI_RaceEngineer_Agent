@@ -74,6 +74,8 @@ class Session(BaseModel):
     tire_rear_laps: int | None = None
     notes: str | None = None
     created_at: str
+    front_hot: float | None = None  # bar, measured after the session
+    rear_hot: float | None = None
 
 
 class Lap(BaseModel):
@@ -121,3 +123,10 @@ class Outcome(BaseModel):
     symptom_resolved: bool | None = None
     notes: str | None = None
     created_at: str
+
+
+class TireTarget(BaseModel):
+    name: str
+    position: str
+    hot_min: float
+    hot_max: float

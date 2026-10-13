@@ -2,7 +2,9 @@
 
 Every tool reads or writes the local database through repo / history / guide, so
 whatever the engineer learns or decides ends up as ordinary records. Tools that
-change data (propose_changes, record_outcome) ask the rider first.
+change the setup or judge a change (propose_changes, log_rider_change,
+record_outcome) ask the rider first; record_hot_pressures stores what the rider
+just read off the gauge and only announces it.
 """
 
 from __future__ import annotations
@@ -142,7 +144,7 @@ TOOLS: list[dict[str, Any]] = [
                             "step": {"type": "number", "description": "Relative change, e.g. -2."},
                             "value": {
                                 "type": ["number", "string"],
-                                "description": "Absolute value. Use instead of step.",
+                                "description": "Absolute value. Use instead of step. Pressures may be '30psi'.",
                             },
                         },
                         "required": ["param"],
@@ -173,6 +175,56 @@ TOOLS: list[dict[str, Any]] = [
                 "notes": {"type": "string", "description": "What the rider felt, in their words."},
             },
             "required": ["change_id", "verdict"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "record_hot_pressures",
+        "description": (
+            "Save hot tire pressures the rider measured right after a session. Values in bar, or a string "
+            "with a unit such as '28psi'. Refused if a reading is implausible or not above the cold pressure "
+            "the session ran: then ask the rider to check the gauge and the unit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "front": {"type": ["number", "string"], "description": "e.g. 2.45 or '35.5psi'."},
+                "rear": {"type": ["number", "string"]},
+                "session_id": {"type": "integer", "description": "Default: the current session."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "log_rider_change",
+        "description": (
+            "Record a setup change the rider already made themselves (not one you proposed), e.g. a "
+            "pressure change in the pit lane. The rider confirms before it is saved. Set "
+            "already_on_bike_this_session when the change was on the bike for the current session."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "param": {"type": "string"},
+                            "step": {"type": "number"},
+                            "value": {"type": ["number", "string"]},
+                        },
+                        "required": ["param"],
+                        "additionalProperties": False,
+                    },
+                },
+                "already_on_bike_this_session": {"type": "boolean"},
+                "why": {"type": "string", "description": "The rider's reason, in their words."},
+                "symptom": {"type": "string", "description": _SYMPTOM_HELP},
+            },
+            "required": ["changes", "already_on_bike_this_session"],
             "additionalProperties": False,
         },
     },
@@ -223,6 +275,19 @@ class _Proposal(BaseModel):
     watch_for: str
 
 
+class _HotPressures(BaseModel):
+    front: float | str | None = None
+    rear: float | str | None = None
+    session_id: int | None = None
+
+
+class _RiderChange(BaseModel):
+    changes: list[_ChangeSpec] = Field(min_length=1, max_length=4)
+    already_on_bike_this_session: bool
+    why: str | None = None
+    symptom: str | None = None
+
+
 class _Outcome(BaseModel):
     change_id: int
     verdict: Literal["better", "same", "worse"]
@@ -247,6 +312,8 @@ class Toolbox:
             "update_feedback_tags": (_Tags, self.update_feedback_tags),
             "propose_changes": (_Proposal, self.propose_changes),
             "record_outcome": (_Outcome, self.record_outcome),
+            "record_hot_pressures": (_HotPressures, self.record_hot_pressures),
+            "log_rider_change": (_RiderChange, self.log_rider_change),
         }
 
     def run(self, name: str, raw_input: Any) -> tuple[str, bool]:
@@ -301,6 +368,7 @@ class Toolbox:
             "tires": {"front": session.tire_front, "rear": session.tire_rear,
                       "front_laps_before": session.tire_front_laps, "rear_laps_before": session.tire_rear_laps},
             "ran_setup_id": session.setup_id,
+            "tire_pressures_bar": _pressure_info(self.conn, session),
             "laps": [{"lap": lap.lap_number, "time": timing.format_time(lap.time_ms), "valid": lap.valid,
                       "sectors": [timing.format_time(s) for s in lap.sectors_ms]} for lap in laps],
             "best_lap": timing.format_time(best.time_ms) if best else None,
@@ -311,7 +379,7 @@ class Toolbox:
                    if s.date == session.date and s.id != session.id]
         context["earlier_sessions_today"] = [
             {"session_id": s.id, "type": s.type, "track_temp_c": s.track_temp, "ran_setup_id": s.setup_id,
-             "best_lap": _best(self.conn, s.id),
+             "best_lap": _best(self.conn, s.id), "tire_pressures_bar": _pressure_info(self.conn, s),
              "feedback": [f.text for f in repo.list_feedback(self.conn, s.id)]}
             for s in earlier
         ]
@@ -387,6 +455,44 @@ class Toolbox:
         return {"status": "applied", "change_id": change.id, "new_setup_id": change.after_setup_id,
                 "deltas": change.deltas}
 
+    def record_hot_pressures(self, args: _HotPressures) -> dict[str, Any]:
+        session_id = args.session_id or self.session_id
+        if session_id is None:
+            raise ToolError("No session to attach the pressures to.")
+        if repo.get_session(self.conn, session_id).bike_id != self.bike_id:
+            raise ToolError(f"Session #{session_id} is for a different bike.")
+        front, rear = _bar(args.front), _bar(args.rear)
+        session = repo.record_hot_pressures(self.conn, session_id, front=front, rear=rear)
+        saved = ", ".join(f"{p} {v:g} bar" for p, v in (("front", front), ("rear", rear)) if v is not None)
+        self.io.notice(f"Saved hot pressures for session #{session.id}: {saved}.")
+        return {"status": "saved", "session_id": session.id, "tire_pressures_bar": _pressure_info(self.conn, session)}
+
+    def log_rider_change(self, args: _RiderChange) -> dict[str, Any]:
+        if args.symptom:
+            guide.get_symptom(args.symptom)
+        assignments = [_assignment(spec) for spec in args.changes]
+        if len({a.key for a in assignments}) != len(assignments):
+            raise ToolError("Each parameter can appear only once.")
+        ran_in = None
+        if args.already_on_bike_this_session:
+            if self.session_id is None:
+                raise ToolError("There is no current session; set already_on_bike_this_session to false.")
+            ran_in = self.session_id
+        bike = repo.get_bike(self.conn, self.bike_id)
+        _, deltas = setup_diff.apply_assignments(repo.get_setup(self.conn, bike.current_setup_id).params, assignments)
+        if not deltas:
+            raise ToolError("Those values match the current setup already: nothing to record.")
+        what = "; ".join(setup_diff.format_delta(d) for d in deltas)
+        when = " (already on the bike this session)" if ran_in else ""
+        if not self.io.confirm(f"Record your change {what}{when}?"):
+            return {"status": "not recorded", "reason": "rider did not confirm"}
+        change = repo.change_setup(self.conn, bike.id, assignments, proposed_by="rider", hypothesis=args.why,
+                                   symptom=args.symptom, session_id=None if ran_in else self.session_id,
+                                   ran_in_session_id=ran_in)
+        self.io.notice(f"Recorded: setup #{change.after_setup_id} (change #{change.id}).")
+        return {"status": "recorded", "change_id": change.id, "new_setup_id": change.after_setup_id,
+                "made_after_session_id": change.session_id, "deltas": change.deltas}
+
     def record_outcome(self, args: _Outcome) -> dict[str, Any]:
         change = repo.get_change(self.conn, args.change_id)
         if change.bike_id != self.bike_id:
@@ -403,10 +509,11 @@ class Toolbox:
                 "best_lap_change": timing.format_gap(delta) if delta is not None else None}
 
     def _change_info(self, change, with_outcomes: bool = False) -> dict[str, Any]:
+        made_after = repo.get_session(self.conn, change.session_id) if change.session_id else None
         info: dict[str, Any] = {
             "change_id": change.id,
-            "made_after_session_id": change.session_id,
-            "created_at": change.created_at,
+            "made_after_session": ({"session_id": made_after.id, "date": made_after.date, "type": made_after.type}
+                                   if made_after else None),
             "changes": [setup_diff.format_delta(d) for d in change.deltas],
             "symptom": change.symptom,
             "hypothesis": change.hypothesis,
@@ -434,6 +541,27 @@ def _assignment(spec: _ChangeSpec) -> setup_diff.Assignment:
         key = setup_diff.normalize_key(spec.param)
         return setup_diff.Assignment(key, setup_diff.tidy(spec.value), relative=False)
     return setup_diff.parse_assignment(f"{spec.param}={spec.value:g}")
+
+
+def _bar(value: float | str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return setup_diff.parse_pressure(str(value))[0]
+    except setup_diff.SetupError as error:
+        raise ToolError(str(error)) from None
+
+
+def _pressure_info(conn: sqlite3.Connection, session) -> dict[str, Any]:
+    """Cold pressure a session ran, hot pressure measured after it, and the tire maker's hot target."""
+    cold = repo.get_setup(conn, session.setup_id).params
+    targets = repo.session_tire_targets(conn, session)
+    info = {}
+    for position, hot in (("front", session.front_hot), ("rear", session.rear_hot)):
+        target = targets[position]
+        info[position] = {"cold": cold.get(f"tire.{position}_cold"), "hot": hot,
+                          "hot_target": [target.hot_min, target.hot_max] if target else None}
+    return info
 
 
 def _param_info(key: str, value: Any, limits: dict[str, ranges.Range]) -> dict[str, Any]:

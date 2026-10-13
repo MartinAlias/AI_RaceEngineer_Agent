@@ -63,3 +63,29 @@ def test_diff_orders_by_group_and_includes_removed_keys():
 def test_format_delta():
     assert format_delta({"param": "fork.rebound", "from": 10, "to": 12}) == "fork.rebound 10 -> 12 (+2)"
     assert format_delta({"param": "electronics.map", "from": "A", "to": "B"}) == "electronics.map A -> B"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("tire.front_cold=2.1", (2.1, False)),
+    ("tire.front_cold=2.1bar", (2.1, False)),
+    ("tire.front_cold=30psi", (2.07, False)),
+    ("tire.front_cold=30", (2.07, False)),  # too high for bar: read as psi
+    ("tire.rear_cold=-0.1", (-0.1, True)),
+    ("tire.rear_cold=-1psi", (-0.07, True)),
+])
+def test_pressures_accept_psi(text, expected):
+    a = parse_assignment(text)
+    assert (a.value, a.relative) == expected
+
+
+def test_pressure_errors():
+    from race_engineer.setup_diff import parse_pressure
+    with pytest.raises(SetupError, match="bar .* or psi"):
+        parse_pressure("hot")
+    with pytest.raises(SetupError, match="not a change"):
+        parse_pressure("+0.1")
+
+
+def test_hot_pressures_are_not_setup_parameters():
+    with pytest.raises(SetupError, match="re pressure"):
+        parse_assignment("tire.front_hot=2.4")

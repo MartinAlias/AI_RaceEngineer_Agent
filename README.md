@@ -7,6 +7,7 @@ A virtual motorcycle race engineer for the terminal. Everything is stored in a l
 - **Offline advice** (`re advise`) that combines the guide with your current setup, your bike's allowed ranges and your own history.
 - **History** (`re history`): search past notes, and see which changes have worked for this bike.
 - **Outcomes** (`re outcome`): record how each change worked. This builds your bike's history.
+- **Tire pressures** (`re pressure`, `re tire target`): log hot pressures after each session, in bar or psi, and compare them with your tire maker's hot window.
 - **The AI engineer** (`re engineer`): talk a complaint through with Claude. It reads your setup, conditions and history, asks follow-up questions, and proposes at most two changes at a time. It explains each proposal, and only applies it if you accept. Offline, it queues the feedback and shows the offline advice instead.
 
 ## Install
@@ -38,7 +39,14 @@ re setup set fork.rebound=-2 --why "hold the front down"     # creates a new set
 re setup diff                                                # compare with the previous setup
 re session start --track Brno --type FP2 --track-temp 41     # runs with the new setup
 re lap add 2:01.640 2:01.388
+re pressure --front 36.5psi --rear 1.75                      # hot pressures right after the session
 re outcome better --resolved --notes "front stays planted"   # best-lap gain vs FP1 is computed
+```
+
+Changed something in the pit lane after starting a session? Record it against that session:
+
+```powershell
+re setup set tire.front_cold=29psi --this-session --why "front too hot in FP1"
 ```
 
 Or let the engineer drive it:
@@ -67,6 +75,8 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
   - updating feedback tags
   - proposing changes
   - recording outcomes
+  - saving hot pressures you tell it (bar or psi)
+  - recording a change you made yourself
 - **Your approval:** proposals are checked against your bike's ranges and shown to you before anything is applied. Every applied change is recorded as proposed by the engineer.
 - **Saved conversations:** each conversation is stored in the database for later review.
 - **Offline:** with no connection (or if it drops mid-conversation), the feedback is queued and you get `re advise` output instead. Run `re analyze-pending` when you have signal again.
@@ -78,6 +88,8 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 - Clickers are counted **clicks out from fully closed**.
 - `re setup params` lists all keys. `electronics.<anything>` takes free-form values, for example `electronics.tc=4` or `electronics.map=B`.
 - Setups are never edited in place. `re setup history` shows the lineage and `re setup revert <id>` goes back to an earlier setup.
+- Pressures are in bar, but you can type psi: `tire.front_cold=30psi`. A bare number of 10 or more is read as psi.
+- Hot pressures are not setup values: they are measured after a session, so log them with `re pressure --front 2.45 --rear 1.9`. A reading that isn't above the cold pressure the session ran is refused as a likely misread (`--force` to save it anyway). Set the tire maker's hot window with `re tire target SC1 front 2.3 2.5`.
 - Changes must stay inside the allowed range for each setting. The defaults in `knowledge/ranges.yaml` are wide sanity limits. Set your bike's real limits, such as clicker counts and your tire maker's pressures, with `re bike range fork.rebound 0 20`. Use `--force` to go outside a range.
 - Each change records the symptom it targets: by default the latest feedback's symptom, or set it with `--symptom`. Once results are recorded, `re history effects` and `re advise` show how each kind of change has worked for this bike.
 
@@ -95,6 +107,8 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 | `re session start / list / show / use` | sessions and the active session |
 | `re setup show / set / diff / history / revert / params` | setups |
 | `re lap add / list` | lap times (`--sectors`, `--invalid`) |
+| `re pressure --front X --rear Y` | hot pressures measured after the session (bar or psi) |
+| `re tire target / list` | the tire maker's hot pressure window per tire |
 | `re feedback "..."` | rider feedback; front/rear, phase, corners and symptom are detected from the text unless given |
 | `re outcome better/same/worse` | record how the latest (or `--change`) change worked |
 | `re engineer [feedback id]` | talk it through with the AI engineer |
@@ -110,4 +124,4 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): modules, database schema and migrations, the engineer loop, and testing.
 - [`CLAUDE.md`](CLAUDE.md): working notes for Claude Code sessions on this project, including how to pick up where the last session left off.
 
-Run the tests with `pytest` (85 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.
+Run the tests with `pytest` (102 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.

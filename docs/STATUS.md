@@ -2,7 +2,7 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-13 (dry run of the engineer; next steps reordered). Tests: 85 passing. Last code change: `4c8ddce` (phase 3); `git log` shows anything newer.
+Last updated: 2026-10-13 (dry-run fixes: hot pressures, psi, rider changes, understeer symptom). Tests: 102 passing.
 
 ## Goal
 
@@ -35,6 +35,7 @@ Decisions made with the rider at the start:
 | 2. Symptom guide, ranges, history search, offline advice | done | `2421a5f` |
 | 4a. `re outcome` (pulled forward before phase 3) | done | `62d8f6e` |
 | 3. AI engineer (`re engineer`, `re analyze-pending`) | done, **not yet tried against the live API** | `4c8ddce` |
+| 3a. Fixes from the engineer dry run | done | see `git log` |
 | 4b. Weekend report export (`re export`) | not started | |
 | 5. Data logger CSV import, sector analysis, rider-profile updates, other front ends | not started | |
 
@@ -59,6 +60,16 @@ Decisions made with the rider at the start:
 - It computes the best-lap difference against the session the change was made after.
 - `re setup history` shows each change's result.
 
+### Phase 3a: Fixes from the engineer dry run (done)
+On 2026-10-13 Claude Code played the engineer against a scratch database, using the real tool code. The engineer worked well (it called `get_session_context` first, asked 3 focused questions, made one in-range proposal, and refused to record an outcome when the rider's answer contradicted the records). The gaps it found are fixed:
+- **Hot pressures are session measurements** (migration v4), logged with `re pressure` or the engineer's `record_hot_pressures` tool. A hot reading that is implausible or not above the cold pressure the session ran is refused unless forced.
+- **Tire hot targets:** `re tire target SC1 front 2.3 2.5`. The engineer sees cold, hot and target per session.
+- **psi:** pressures accept `30psi`; a bare number of 10 or more is read as psi.
+- **Changes the rider made themselves:** `re setup set --this-session` and the engineer's `log_rider_change` tool record a pit-lane change against the session it ran in.
+- **Symptom guide:** new `front_understeer_mid` (vague, runs wide mid corner); "vague" no longer tags as `front_push_mid`.
+- **Change dates:** the engineer sees the date and type of the session a change followed, not the time it was typed in.
+- **Prompt:** one change when one cause clearly leads; pressure, psi and rider-change guidance; clear up contradictions before recording anything.
+
 ### Phase 3: AI engineer (done, needs a live trial)
 - `re engineer` runs a Claude tool-use loop with the rider in the terminal (`src/race_engineer/agent/`).
 - Tools: session context, setup history, history search, learned effects, the symptom guide, updating feedback tags, `propose_changes` and `record_outcome`.
@@ -70,21 +81,13 @@ Decisions made with the rider at the start:
 
 ## Next steps (in order)
 
-1. **Fixes from the dry run** (2026-10-13; Claude Code played the engineer against a scratch database using the real tool code). It worked well: it called `get_session_context` first, asked 3 focused questions, made one in-range proposal and refused to record an outcome when the rider's answer was contradictory. Fix:
-   - **Hot pressures:** give them a proper place, as session measurements (see Known gaps), and a tool so the engineer can record them. Check that hot is above cold.
-   - **Units:** accept psi for pressures (e.g. `28psi`) and convert to bar.
-   - **Rider's own changes:** a tool so the engineer can log a change the rider made themselves in the pit lane (`proposed_by="rider"`).
-   - **Symptom guide:** nothing covers mid-corner understeer ("vague, runs wide"); it gets tagged `front_push_mid` (slides). Add an entry or keywords.
-   - **Change dates:** `_change_info` shows the wall-clock `created_at`; show the session date so backdated or older changes aren't read as today's.
-   - **Prompt:** say that one change is better than two when there's a clear leading cause.
-   - **Tire hot target:** consider storing the maker's hot target per tire so the engineer can compare against it.
-2. **Phase 4b:** `re export --format md|csv`, a weekend report covering sessions, laps, feedback, changes and results.
-3. **Phase 5:**
+1. **Phase 4b:** `re export --format md|csv`, a weekend report covering sessions, laps, feedback, changes and results.
+2. **Phase 5:**
    - CSV import from the rider's lap timer or data logger. Ask which device and get a sample file first.
    - A sector-analysis tool for the engineer.
    - A way for the engineer to suggest updates to the rider profile.
    - Possibly a phone or web front end on the same database and modules.
-4. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
+3. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
    - Does it call `get_session_context` first?
    - Are its follow-up questions sensible, and how many does it ask?
    - Are its `propose_changes` arguments correct?
@@ -93,7 +96,6 @@ Decisions made with the rider at the start:
 
 ## Known gaps and ideas
 - **Can't edit or delete logged entries.** Laps, feedback and sessions can be added but not corrected. Feedback tags can be corrected only by the engineer, via `repo.update_feedback`.
-- **Hot pressures are stored as setup parameters** (`tire.front_hot` / `tire.rear_hot`). They are really measurements taken after a session, so they might belong on the session record.
 - **The symptom guide hasn't been reviewed by the rider.** It was written from general suspension-setup practice.
 - **Search matching is crude.** It matches by word prefix ("slippery" becomes "slipp*") with no synonyms.
 - **One rider only.** There is no concept of separate riders; the rider profile is a single piece of text.
@@ -111,5 +113,7 @@ Decisions made with the rider at the start:
   - Message history is append-only.
   - No forced `tool_choice`; the model rejects it.
 - **The live API trial is the last step,** at the rider's request. Until then, prompt and tool behavior is checked by dry runs in Claude Code.
+- **Hot pressures are measurements on the session, not setup parameters** (migration v4). `tire.front_hot` / `tire.rear_hot` are no longer accepted by `re setup set`; old setups that contain them are left as they are.
+- **Pressures can be entered in psi** and are stored in bar. A bare number of 10 or more is taken as psi, since no tire runs at 10 bar.
 - **No `ask_rider` tool** (it was in the original plan). The engineer asks questions in its normal reply and the rider answers in the chat.
 - **Repo:** GitHub `MartinAlias/AI_RaceEngineer_Agent` (private). Commits are authored as `martinhorciak <martinhorciak@gmail.com>`, set in the repo's local git config.

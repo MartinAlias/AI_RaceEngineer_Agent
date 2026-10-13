@@ -3,6 +3,9 @@
 A setup is a flat dict keyed by dotted parameter names, e.g.
 {"fork.rebound": 12, "tire.front_cold": 2.1}. Clickers are counted in clicks
 out from fully closed (fully stiff), the usual paddock convention.
+
+Pressures are stored in bar but can be entered in psi ("30psi"); a bare number
+of 10 or more is read as psi, since no tire runs at 10 bar.
 """
 
 from __future__ import annotations
@@ -49,15 +52,23 @@ PARAMETERS: dict[str, Param] = {
     "gearing.chain_links": Param("Chain length", "links", integer=True, hint="more = longer wheelbase"),
     "tire.front_cold": Param("Front pressure (cold)", "bar"),
     "tire.rear_cold": Param("Rear pressure (cold)", "bar"),
-    "tire.front_hot": Param("Front pressure (hot)", "bar"),
-    "tire.rear_hot": Param("Rear pressure (hot)", "bar"),
 }
+
+# Hot pressures used to be setup parameters; they are now measurements on the session.
+MOVED = {
+    "tire.front_hot": "Hot pressures are measurements, not settings: record them with `re pressure --front <value>`.",
+    "tire.rear_hot": "Hot pressures are measurements, not settings: record them with `re pressure --rear <value>`.",
+}
+
+PSI_PER_BAR = 14.5038
+PSI_GUESS_FROM = 10  # a bare pressure this high must be psi
 
 # Anything under these prefixes is free-form (e.g. electronics.tc=4, electronics.map=B).
 FREE_PREFIXES = ("electronics.",)
 GROUPS = ("fork", "shock", "sag", "gearing", "tire", "electronics")
 
 _ASSIGNMENT = re.compile(r"^\s*([A-Za-z0-9_.]+)\s*=\s*(.+?)\s*$")
+_PRESSURE = re.compile(r"^([+-]?\d+(?:\.\d+)?)\s*(psi|bar)?$", re.IGNORECASE)
 _KEY_ORDER = {key: i for i, key in enumerate(PARAMETERS)}
 
 
@@ -72,6 +83,8 @@ def normalize_key(key: str) -> str:
     key = key.strip().lower()
     if key in PARAMETERS:
         return key
+    if key in MOVED:
+        raise SetupError(MOVED[key])
     for prefix in FREE_PREFIXES:
         if key.startswith(prefix) and len(key) > len(prefix):
             return key
@@ -87,6 +100,9 @@ def parse_assignment(text: str) -> Assignment:
         raise SetupError(f"Expected key=value, got '{text}'.")
     key = normalize_key(match.group(1))
     raw = match.group(2)
+    if unit(key) == "bar":
+        value, relative = parse_pressure(raw, allow_relative=True)
+        return Assignment(key, value, relative)
     relative = raw[0] in "+-"
     try:
         number = float(raw)
@@ -98,6 +114,22 @@ def parse_assignment(text: str) -> Assignment:
     if param and param.integer and not number.is_integer():
         raise SetupError(f"{key} must be a whole number ({param.unit}), got '{raw}'.")
     return Assignment(key, tidy(number), relative)
+
+
+def parse_pressure(text: str, *, allow_relative: bool = False) -> tuple[float, bool]:
+    """Read a pressure in bar or psi: "2.1", "2.1bar", "30psi", "30" (psi), "-0.1", "-1psi".
+
+    Returns (bar rounded to 0.01, relative)."""
+    match = _PRESSURE.match(text.strip())
+    if not match:
+        raise SetupError(f"Can't read pressure '{text}'. Use bar (2.1) or psi (30psi).")
+    number, given_unit = float(match.group(1)), (match.group(2) or "").lower()
+    relative = match.group(1)[0] in "+-"
+    if relative and not allow_relative:
+        raise SetupError(f"Give the pressure itself, not a change: '{text}'.")
+    if given_unit == "psi" or (not given_unit and not relative and number >= PSI_GUESS_FROM):
+        number /= PSI_PER_BAR
+    return round(number, 2), relative
 
 
 def apply_assignments(params: dict[str, Any], assignments: list[Assignment]) -> tuple[dict[str, Any], list[dict]]:

@@ -135,3 +135,69 @@ def test_use_bike_clears_session_of_other_bike(conn, weekend):
     repo.use_bike(conn, "Spare")
     with pytest.raises(repo.NotFound):
         repo.current_session(conn)
+
+
+def test_hot_pressures_are_checked_against_cold(conn, weekend):
+    _, _, session = weekend  # runs front cold 2.1, no rear cold recorded
+    with pytest.raises(repo.RepoError, match="not above the 2.1 bar cold"):
+        repo.record_hot_pressures(conn, session.id, front=1.93)
+    with pytest.raises(repo.RepoError, match="not a believable"):
+        repo.record_hot_pressures(conn, session.id, rear=28)
+    with pytest.raises(repo.RepoError, match="front and/or rear"):
+        repo.record_hot_pressures(conn, session.id)
+
+    saved = repo.record_hot_pressures(conn, session.id, front=2.45)
+    saved = repo.record_hot_pressures(conn, session.id, rear=1.9)  # front kept
+    assert (saved.front_hot, saved.rear_hot) == (2.45, 1.9)
+    assert repo.record_hot_pressures(conn, session.id, front=2.0, force=True).front_hot == 2.0
+
+
+def test_tire_targets(conn, weekend):
+    _, _, session = weekend
+    conn.execute("UPDATE session SET tire_front = 'SC1' WHERE id = ?", (session.id,))
+    repo.set_tire_target(conn, "sc1", "front", 2.3, 2.5)
+    repo.set_tire_target(conn, "SC1", "front", 2.35, 2.55)  # replaces, name is case-insensitive
+    targets = repo.session_tire_targets(conn, repo.get_session(conn, session.id))
+    assert (targets["front"].hot_min, targets["front"].hot_max, targets["rear"]) == (2.35, 2.55, None)
+    assert len(repo.list_tire_targets(conn)) == 1
+    with pytest.raises(repo.RepoError):
+        repo.set_tire_target(conn, "SC1", "middle", 2, 3)
+
+
+def test_change_already_on_the_bike_for_a_session(conn, weekend):
+    bike, track, fp1 = weekend
+    fp2 = repo.start_session(conn, bike.id, track.id, type="FP2", date=fp1.date)
+    assert repo.previous_session(conn, fp2).id == fp1.id
+    assert repo.previous_session(conn, fp1) is None
+
+    change = repo.change_setup(conn, bike.id, [parse_assignment("tire.front_cold=2.2")], ran_in_session_id=fp2.id)
+    assert change.session_id == fp1.id  # results compare against FP1
+    assert repo.get_session(conn, fp2.id).setup_id == change.after_setup_id
+
+    fp3 = repo.start_session(conn, bike.id, track.id, type="FP3", date=fp1.date)
+    repo.change_setup(conn, bike.id, [parse_assignment("fork.rebound=-1")])  # change for the next session
+    with pytest.raises(repo.RepoError, match="ran setup"):
+        repo.change_setup(conn, bike.id, [parse_assignment("fork.rebound=-1")], ran_in_session_id=fp3.id)
+
+
+def test_migration_v4_moves_hot_pressures_to_sessions(tmp_path):
+    import json
+    import sqlite3
+    path = tmp_path / "v3.db"
+    raw = sqlite3.connect(path)
+    for sql in db.MIGRATIONS[:3]:
+        raw.executescript(sql)
+    raw.executescript(f"""
+        PRAGMA user_version = 3;
+        INSERT INTO bike (id, name) VALUES (1, 'R6');
+        INSERT INTO setup (id, bike_id, params) VALUES (1, 1, '{{}}'), (2, 1, '{{"tire.front_hot": 2.4}}');
+        INSERT INTO track (id, name) VALUES (1, 'Brno');
+        INSERT INTO session (id, bike_id, track_id, setup_id, date, type) VALUES (1, 1, 1, 1, '2026-01-01', 'FP');
+        INSERT INTO change (bike_id, session_id, before_setup_id, after_setup_id, deltas, proposed_by)
+        VALUES (1, 1, 1, 2, '{json.dumps([{"param": "tire.front_hot", "from": None, "to": 2.4}])}', 'rider');
+    """)
+    raw.close()
+    conn = db.connect(path)
+    session = repo.get_session(conn, 1)
+    assert (session.front_hot, session.rear_hot) == (2.4, None)
+    conn.close()

@@ -159,6 +159,7 @@ def test_migration_v2_indexes_existing_notes(tmp_path):
         DROP TRIGGER feedback_fts_insert; DROP TRIGGER feedback_fts_update;
         DROP TRIGGER change_fts_insert; DROP TRIGGER outcome_fts_insert;
         ALTER TABLE change DROP COLUMN symptom;
+        DROP TABLE tire_target; ALTER TABLE session DROP COLUMN front_hot; ALTER TABLE session DROP COLUMN rear_hot;
         INSERT INTO bike (id, name) VALUES (1, 'R6');
         INSERT INTO setup (id, bike_id, params) VALUES (1, 1, '{}');
         INSERT INTO track (id, name) VALUES (1, 'Brno');
