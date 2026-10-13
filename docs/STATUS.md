@@ -2,7 +2,7 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-06. Tests: 85 passing. Last code change: `4c8ddce` (phase 3); `git log` shows anything newer.
+Last updated: 2026-10-13 (dry run of the engineer; next steps reordered). Tests: 85 passing. Last code change: `4c8ddce` (phase 3); `git log` shows anything newer.
 
 ## Goal
 
@@ -70,18 +70,26 @@ Decisions made with the rider at the start:
 
 ## Next steps (in order)
 
-1. **First live trial of `re engineer`.** The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
-   - Does it call `get_session_context` first?
-   - Are its follow-up questions sensible, and how many does it ask?
-   - Are its `propose_changes` arguments correct?
-   - Does it record outcomes for pending changes?
-   - Cost per conversation (consider logging `response.usage`).
+1. **Fixes from the dry run** (2026-10-13; Claude Code played the engineer against a scratch database using the real tool code). It worked well: it called `get_session_context` first, asked 3 focused questions, made one in-range proposal and refused to record an outcome when the rider's answer was contradictory. Fix:
+   - **Hot pressures:** give them a proper place, as session measurements (see Known gaps), and a tool so the engineer can record them. Check that hot is above cold.
+   - **Units:** accept psi for pressures (e.g. `28psi`) and convert to bar.
+   - **Rider's own changes:** a tool so the engineer can log a change the rider made themselves in the pit lane (`proposed_by="rider"`).
+   - **Symptom guide:** nothing covers mid-corner understeer ("vague, runs wide"); it gets tagged `front_push_mid` (slides). Add an entry or keywords.
+   - **Change dates:** `_change_info` shows the wall-clock `created_at`; show the session date so backdated or older changes aren't read as today's.
+   - **Prompt:** say that one change is better than two when there's a clear leading cause.
+   - **Tire hot target:** consider storing the maker's hot target per tire so the engineer can compare against it.
 2. **Phase 4b:** `re export --format md|csv`, a weekend report covering sessions, laps, feedback, changes and results.
 3. **Phase 5:**
    - CSV import from the rider's lap timer or data logger. Ask which device and get a sample file first.
    - A sector-analysis tool for the engineer.
    - A way for the engineer to suggest updates to the rider profile.
    - Possibly a phone or web front end on the same database and modules.
+4. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
+   - Does it call `get_session_context` first?
+   - Are its follow-up questions sensible, and how many does it ask?
+   - Are its `propose_changes` arguments correct?
+   - Does it record outcomes for pending changes?
+   - Cost per conversation (consider logging `response.usage`).
 
 ## Known gaps and ideas
 - **Can't edit or delete logged entries.** Laps, feedback and sessions can be added but not corrected. Feedback tags can be corrected only by the engineer, via `repo.update_feedback`.
@@ -102,5 +110,6 @@ Decisions made with the rider at the start:
   - Prompt caching: automatic top-level `cache_control`, with a fixed system prompt and tool list.
   - Message history is append-only.
   - No forced `tool_choice`; the model rejects it.
+- **The live API trial is the last step,** at the rider's request. Until then, prompt and tool behavior is checked by dry runs in Claude Code.
 - **No `ask_rider` tool** (it was in the original plan). The engineer asks questions in its normal reply and the rider answers in the chat.
 - **Repo:** GitHub `MartinAlias/AI_RaceEngineer_Agent` (private). Commits are authored as `martinhorciak <martinhorciak@gmail.com>`, set in the repo's local git config.
