@@ -2,8 +2,8 @@
 
 Every tool reads or writes the local database through repo / history / guide, so
 whatever the engineer learns or decides ends up as ordinary records. Tools that
-change the setup or judge a change (propose_changes, log_rider_change,
-record_outcome) ask the rider first; record_hot_pressures stores what the rider
+change the setup, judge a change or rewrite the rider profile (propose_changes,
+log_rider_change, record_outcome, suggest_profile_update) ask the rider first; record_hot_pressures stores what the rider
 just read off the gauge and only announces it.
 """
 
@@ -15,7 +15,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
-from .. import guide, history, ranges, repo, setup_diff, timing
+from .. import analysis, guide, history, ranges, repo, setup_diff, timing
 
 
 class RiderIO(Protocol):
@@ -228,6 +228,40 @@ TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "get_sector_analysis",
+        "description": (
+            "Lap and sector analysis of a session: best, median and consistency of valid laps, best and "
+            "median per sector with the theoretical best lap, and each sector's best compared with another "
+            "session. By default it compares with the session the latest change was made after (to judge "
+            "that change), otherwise the previous session. Sectors are only available if they were logged."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "integer", "description": "Default: the current session."},
+                "compare_session_id": {"type": "integer"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "suggest_profile_update",
+        "description": (
+            "Propose a new version of the rider profile (riding style and preferences) when the "
+            "conversation has shown something lasting about how this rider rides or what they like. "
+            "Give the whole new profile text, kept short. The rider sees old and new and must accept."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "profile": {"type": "string", "description": "The complete new profile."},
+                "reason": {"type": "string", "description": "What you learned, in one line."},
+            },
+            "required": ["profile", "reason"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -288,6 +322,16 @@ class _RiderChange(BaseModel):
     symptom: str | None = None
 
 
+class _Sectors(BaseModel):
+    session_id: int | None = None
+    compare_session_id: int | None = None
+
+
+class _Profile(BaseModel):
+    profile: str = Field(min_length=1, max_length=2000)
+    reason: str
+
+
 class _Outcome(BaseModel):
     change_id: int
     verdict: Literal["better", "same", "worse"]
@@ -314,6 +358,8 @@ class Toolbox:
             "record_outcome": (_Outcome, self.record_outcome),
             "record_hot_pressures": (_HotPressures, self.record_hot_pressures),
             "log_rider_change": (_RiderChange, self.log_rider_change),
+            "get_sector_analysis": (_Sectors, self.get_sector_analysis),
+            "suggest_profile_update": (_Profile, self.suggest_profile_update),
         }
 
     def run(self, name: str, raw_input: Any) -> tuple[str, bool]:
@@ -415,7 +461,42 @@ class Toolbox:
             return [_symptom_info(m.symptom) for m in guide.match(args.description, limit=3)]
         return [{"id": s.id, "name": s.name} for s in guide.load_symptoms().values()]
 
+    def get_sector_analysis(self, args: _Sectors) -> dict[str, Any]:
+        session_id = args.session_id or self.session_id
+        if session_id is None:
+            raise ToolError("No session given and no current session.")
+        session = repo.get_session(self.conn, session_id)
+        if session.bike_id != self.bike_id:
+            raise ToolError(f"Session #{session.id} is for a different bike.")
+        compare = (repo.get_session(self.conn, args.compare_session_id) if args.compare_session_id
+                   else analysis.default_comparison(self.conn, session))
+        result = analysis.analyse(repo.list_laps(self.conn, session.id),
+                                  repo.list_laps(self.conn, compare.id) if compare else None)
+        return {
+            "session": _session_ref(session),
+            "compared_with": _session_ref(compare) if compare else None,
+            "valid_laps": result.valid_laps,
+            "best_lap": _fmt(result.best_ms),
+            "median_lap": _fmt(result.median_ms),
+            "lap_stdev_s": round(result.stdev_ms / 1000, 3) if result.stdev_ms is not None else None,
+            "theoretical_best": _fmt(result.theoretical_best_ms),
+            "best_vs_compared": _gap(result.delta_ms),
+            "sectors": [{"sector": s.sector, "best": _fmt(s.best_ms), "best_on_lap": s.best_lap,
+                         "median": _fmt(s.median_ms), "median_minus_best": _gap(s.spread_ms),
+                         "best_vs_compared": _gap(s.delta_ms)} for s in result.sectors],
+        }
+
     # write tools
+
+    def suggest_profile_update(self, args: _Profile) -> dict[str, Any]:
+        current = repo.get_state(self.conn, "rider_profile")
+        self.io.show_proposal("Rider profile update", [f"Now: {current or '(none)'}", f"New: {args.profile}", "",
+                                                       f"Why: {args.reason}"])
+        if not self.io.confirm("Save the new profile?"):
+            comment = self.io.ask("Why not? (optional, Enter to skip)") or ""
+            return {"status": "declined", "rider_comment": comment.strip() or None}
+        repo.set_state(self.conn, "rider_profile", args.profile.strip())
+        return {"status": "saved"}
 
     def update_feedback_tags(self, args: _Tags) -> dict[str, Any]:
         if args.symptom:
@@ -541,6 +622,19 @@ def _assignment(spec: _ChangeSpec) -> setup_diff.Assignment:
         key = setup_diff.normalize_key(spec.param)
         return setup_diff.Assignment(key, setup_diff.tidy(spec.value), relative=False)
     return setup_diff.parse_assignment(f"{spec.param}={spec.value:g}")
+
+
+def _session_ref(session) -> dict[str, Any]:
+    return {"session_id": session.id, "date": session.date, "type": session.type, "track_temp_c": session.track_temp,
+            "ran_setup_id": session.setup_id}
+
+
+def _fmt(ms: int | None) -> str | None:
+    return timing.format_time(ms) if ms is not None else None
+
+
+def _gap(ms: int | None) -> str | None:
+    return timing.format_gap(ms) if ms is not None else None
 
 
 def _bar(value: float | str | None) -> float | None:

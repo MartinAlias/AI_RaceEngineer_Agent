@@ -13,7 +13,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from . import advisor, db, guide, history, offline, report, repo, setup_diff, timing
+from . import advisor, analysis, db, guide, history, lapimport, offline, report, repo, setup_diff, timing
 from .agent.engineer import Engineer, EngineerConfig, EngineerOffline, EngineerUnavailable, make_client
 from .models import Feedback, Setup
 
@@ -332,6 +332,40 @@ def session_show(session_id: Optional[int] = typer.Argument(None, help="Default:
                 console.print(f"  #{c.id}: " + "; ".join(setup_diff.format_delta(d) for d in c.deltas))
 
 
+@session_app.command("sectors")
+def session_sectors(
+    session_id: Optional[int] = typer.Argument(None, help="Default: the active session."),
+    compare: Optional[int] = typer.Option(
+        None, help="Session to compare with (default: the one before the latest change, else the previous one)."),
+) -> None:
+    """Lap and sector analysis: best, median, consistency, theoretical best, and a comparison."""
+    with _open() as conn:
+        s = repo.get_session(conn, session_id) if session_id else repo.current_session(conn)
+        other = repo.get_session(conn, compare) if compare else analysis.default_comparison(conn, s)
+        result = analysis.analyse(repo.list_laps(conn, s.id), repo.list_laps(conn, other.id) if other else None)
+        if not result.valid_laps:
+            raise repo.RepoError(f"Session #{s.id} has no valid laps yet.")
+        vs = f" vs #{other.id} {other.type} ({other.date})" if other else ""
+        console.print(f"[bold]Session #{s.id}[/bold] {s.type} ({s.date}){vs}")
+        line = (f"{result.valid_laps} valid laps, best {timing.format_time(result.best_ms)}, "
+                f"median {timing.format_time(result.median_ms)}")
+        if result.stdev_ms is not None:
+            line += f", spread (std dev) {result.stdev_ms / 1000:.3f} s"
+        if result.delta_ms is not None:
+            line += f", best {timing.format_gap(result.delta_ms)} vs #{other.id}"
+        console.print(line)
+        if not result.sectors:
+            console.print("[dim]No sector times logged (re lap add --sectors, or re lap import).[/dim]")
+            return
+        table = Table("Sector", "Best", "On lap", "Median", "Median - best", "Best vs compared")
+        for sec in result.sectors:
+            table.add_row(f"S{sec.sector}", timing.format_time(sec.best_ms), str(sec.best_lap),
+                          timing.format_time(sec.median_ms), timing.format_gap(sec.spread_ms),
+                          timing.format_gap(sec.delta_ms) if sec.delta_ms is not None else "-")
+        console.print(table)
+        console.print(f"Theoretical best (best sectors): {timing.format_time(result.theoretical_best_ms)}")
+
+
 # --- setups --------------------------------------------------------------
 
 @setup_app.command("show")
@@ -481,6 +515,51 @@ def lap_add(
             console.print(f"Lap {lap.lap_number}: {timing.format_time(lap.time_ms)}")
         if best:
             console.print(f"Best: lap {best.lap_number}, {timing.format_time(best.time_ms)}")
+
+
+@lap_app.command("import")
+def lap_import(
+    file: Path = typer.Argument(..., exists=True, dir_okay=False, help="CSV export from your lap timer app."),
+    session_id: Optional[int] = typer.Option(None, "--session", help="Default: the active session."),
+    append: bool = typer.Option(False, "--append", help="Add to a session that already has laps."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be imported, save nothing."),
+    keep_slow: bool = typer.Option(False, "--keep-slow", help="Don't mark very slow laps (out laps) invalid."),
+    lap_col: Optional[str] = typer.Option(None, help="Name of the lap number column, if not detected."),
+    time_col: Optional[str] = typer.Option(None, help="Name of the lap time column, if not detected."),
+    sector_col: Optional[List[str]] = typer.Option(None, help="Sector column names in order (repeatable)."),
+) -> None:
+    """Import lap times (and sectors) from a lap timer's CSV export, e.g. RaceChrono or Harry's LapTimer."""
+    with _open() as conn:
+        session = repo.get_session(conn, session_id) if session_id else repo.current_session(conn)
+        try:
+            result = lapimport.read_file(file, lap_col=lap_col, time_col=time_col, sector_cols=sector_col,
+                                         keep_slow=keep_slow)
+        except lapimport.LapImportError as error:
+            raise repo.RepoError(str(error)) from None
+        used = result.columns
+        console.print(f"Columns: lap [bold]{escape(used['lap'] or '-')}[/bold], time [bold]{escape(used['time'])}"
+                      f"[/bold], sectors [bold]{escape(', '.join(used['sectors']) or '-')}[/bold], "
+                      f"status [bold]{escape(used['status'] or '-')}[/bold]")
+        table = Table("File lap", "Time", "Sectors", "Valid")
+        for lap in result.laps:
+            table.add_row("" if lap.number is None else str(lap.number), timing.format_time(lap.time_ms),
+                          "  ".join(timing.format_time(ms) for ms in lap.sectors_ms),
+                          "yes" if lap.valid else f"[yellow]no[/yellow] [dim]{escape(lap.note)}[/dim]")
+        console.print(table)
+        if result.skipped:
+            console.print(f"[dim]Skipped {len(result.skipped)} row(s) without a lap time, e.g. "
+                          f"{escape(result.skipped[0])}[/dim]")
+        if dry_run:
+            console.print("Dry run: nothing saved.")
+            return
+        existing = repo.list_laps(conn, session.id)
+        if existing and not append:
+            raise repo.RepoError(f"Session #{session.id} already has {len(existing)} laps. "
+                                 "Use --append to add these after them, or --session for another session.")
+        laps = repo.import_laps(conn, session.id, [(lap.time_ms, lap.sectors_ms, lap.valid) for lap in result.laps])
+        best = repo.best_lap(conn, session.id)
+        console.print(f"Imported {len(laps)} laps into session #{session.id}."
+                      + (f" Best: lap {best.lap_number}, {timing.format_time(best.time_ms)}" if best else ""))
 
 
 @lap_app.command("list")

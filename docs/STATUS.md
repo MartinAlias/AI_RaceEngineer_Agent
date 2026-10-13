@@ -2,7 +2,7 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-13 (phase 4b: `re export`). Tests: 107 passing.
+Last updated: 2026-10-13 (phase 5: lap import, sector analysis, profile suggestions). Tests: 121 passing.
 
 ## Goal
 
@@ -37,7 +37,8 @@ Decisions made with the rider at the start:
 | 3. AI engineer (`re engineer`, `re analyze-pending`) | done, **not yet tried against the live API** | `4c8ddce` |
 | 3a. Fixes from the engineer dry run | done | see `git log` |
 | 4b. Weekend report export (`re export`) | done | see `git log` |
-| 5. Data logger CSV import, sector analysis, rider-profile updates, other front ends | not started | |
+| 5. Lap timer CSV import, sector analysis, rider-profile updates | done | see `git log` |
+| 5b. Local web page (`re web`) | in progress | |
 
 ### Phase 1: Logging foundation (done)
 - SQLite database with migrations.
@@ -59,6 +60,11 @@ Decisions made with the rider at the start:
 - `re outcome better|same|worse [--resolved] [--notes]` records how the latest change (or `--change N`) worked.
 - It computes the best-lap difference against the session the change was made after.
 - `re setup history` shows each change's result.
+
+### Phase 5: Import, sectors, profile (done)
+- `re lap import FILE`: lap and sector times from a phone lap timer's CSV (the rider uses a phone app). Built without a real sample file, so detection is generic: delimiter, decimal comma, header row, lap / time / sector / status columns, m:ss, h:mm:ss or seconds. Out laps and laps over 15% slower than the median are imported as invalid. `--dry-run`, `--append`, and explicit column names when detection fails.
+- `re session sectors` and the engineer's `get_sector_analysis` tool: best, median and spread per sector, consistency, theoretical best, compared with the session before the latest change (or the previous session).
+- The engineer's `suggest_profile_update` tool proposes a new rider profile; the rider sees old and new and accepts or declines.
 
 ### Phase 4b: Weekend report (done)
 - `re export` writes a Markdown report: a summary table, the starting setup, every change with its reasoning and result, and per session the conditions, tires, pressures, laps (with sectors) and feedback.
@@ -86,12 +92,9 @@ On 2026-10-13 Claude Code played the engineer against a scratch database, using 
 
 ## Next steps (in order)
 
-1. **Phase 5:**
-   - CSV import from the rider's lap timer or data logger. Ask which device and get a sample file first.
-   - A sector-analysis tool for the engineer.
-   - A way for the engineer to suggest updates to the rider profile.
-   - Possibly a phone or web front end on the same database and modules.
-2. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
+1. **Phase 5b: local web page** (`re web`), read-only, on the laptop.
+2. **Get a real CSV export from the rider's phone app** (which app: RaceChrono or Harry's LapTimer?) and add it as a test fixture; adjust detection if needed.
+3. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
    - Does it call `get_session_context` first?
    - Are its follow-up questions sensible, and how many does it ask?
    - Are its `propose_changes` arguments correct?

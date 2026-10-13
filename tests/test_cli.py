@@ -153,3 +153,29 @@ def test_export(tmp_path):
 
     result = runner.invoke(app, ["--db", str(db_path), "export", "--format", "pdf"])
     assert result.exit_code != 0
+
+
+def test_lap_import_and_sectors(tmp_path):
+    db_path = tmp_path / "cli7.db"
+    run(db_path, "bike", "add", "R6")
+    run(db_path, "track", "add", "Brno")
+    run(db_path, "session", "start", "--track", "Brno", "--type", "FP1")
+    export = tmp_path / "racechrono.csv"
+    export.write_text("Lap,Lap time,Sector 1,Sector 2\n1,2:25.000,72.000,73.000\n2,2:01.388,60.000,61.388\n"
+                      "3,2:01.900,59.800,62.100\n4,2:02.000,60.100,61.900\n", encoding="utf-8")
+
+    out = run(db_path, "lap", "import", str(export), "--dry-run")
+    assert "Columns: lap Lap, time Lap time, sectors Sector 1, Sector 2" in out and "Dry run" in out
+    out = run(db_path, "lap", "import", str(export))
+    assert "Imported 4 laps into session #1. Best: lap 2, 2:01.388" in out
+    result = runner.invoke(app, ["--db", str(db_path), "lap", "import", str(export)])
+    assert result.exit_code == 1 and "--append" in result.output
+
+    out = run(db_path, "session", "sectors")
+    assert "3 valid laps, best 2:01.388" in out
+    assert "Theoretical best (best sectors): 2:01.188" in out
+
+    bad = tmp_path / "bad.csv"
+    bad.write_text("a,b\n1,2\n", encoding="utf-8")
+    result = runner.invoke(app, ["--db", str(db_path), "lap", "import", str(bad), "--append"])
+    assert result.exit_code == 1 and "--time-col" in result.output

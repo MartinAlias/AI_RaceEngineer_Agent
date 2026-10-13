@@ -7,6 +7,8 @@ A virtual motorcycle race engineer for the terminal. Everything is stored in a l
 - **Offline advice** (`re advise`) that combines the guide with your current setup, your bike's allowed ranges and your own history.
 - **History** (`re history`): search past notes, and see which changes have worked for this bike.
 - **Outcomes** (`re outcome`): record how each change worked. This builds your bike's history.
+- **Lap timer import** (`re lap import`): bring in lap and sector times from your phone lap timer's CSV export (RaceChrono, Harry's LapTimer or similar).
+- **Sector analysis** (`re session sectors`): best and median per sector, consistency, the theoretical best lap, and a comparison with the session before the last change.
 - **Weekend reports** (`re export`): a Markdown report of the weekend, covering sessions, laps, feedback, setup changes and their results, or a CSV of every lap for a spreadsheet.
 - **Tire pressures** (`re pressure`, `re tire target`): log hot pressures after each session, in bar or psi, and compare them with your tire maker's hot window.
 - **The AI engineer** (`re engineer`): talk a complaint through with Claude. It reads your setup, conditions and history, asks follow-up questions, and proposes at most two changes at a time. It explains each proposal, and only applies it if you accept. Offline, it queues the feedback and shows the offline advice instead.
@@ -78,10 +80,22 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
   - recording outcomes
   - saving hot pressures you tell it (bar or psi)
   - recording a change you made yourself
+  - sector analysis
+  - suggesting an update to your rider profile (you accept or decline)
 - **Your approval:** proposals are checked against your bike's ranges and shown to you before anything is applied. Every applied change is recorded as proposed by the engineer.
 - **Saved conversations:** each conversation is stored in the database for later review.
 - **Offline:** with no connection (or if it drops mid-conversation), the feedback is queued and you get `re advise` output instead. Run `re analyze-pending` when you have signal again.
 - **Refusal fallback:** requests use Anthropic's server-side refusal fallback (`fallbacks: "default"`). If the model declines a request on safety grounds, it is retried on a fallback model.
+
+## Importing from a lap timer
+
+```powershell
+re lap import C:\Users\me\Downloads\session.csv --dry-run   # check what it found
+re lap import C:\Users\me\Downloads\session.csv             # into the active session
+re session sectors                                             # where the time is
+```
+
+The import looks for a lap time column ("Lap time", "Laptime", "Time", "Duration"), an optional lap number, sector columns ("Sector 1", "S1", "Split 1") and a status column (out / in / pit laps are marked invalid). It copes with title lines above the header, semicolons and decimal commas, and m:ss.xxx, h:mm:ss.xxx or plain seconds. Laps more than 15% slower than the median are marked invalid (use `--keep-slow` to keep them valid). If it picks the wrong column, name them: `--time-col "Lap time" --lap-col Lap --sector-col S1 --sector-col S2`.
 
 ## Weekend report
 
@@ -118,6 +132,8 @@ Without `--out` the report is printed. On Windows, prefer `--out` over redirecti
 | `re session start / list / show / use` | sessions and the active session |
 | `re setup show / set / diff / history / revert / params` | setups |
 | `re lap add / list` | lap times (`--sectors`, `--invalid`) |
+| `re lap import FILE` | lap and sector times from a lap timer CSV (`--dry-run`, `--append`, `--time-col` ...) |
+| `re session sectors [id]` | lap and sector analysis, compared with another session (`--compare`) |
 | `re pressure --front X --rear Y` | hot pressures measured after the session (bar or psi) |
 | `re tire target / list` | the tire maker's hot pressure window per tire |
 | `re feedback "..."` | rider feedback; front/rear, phase, corners and symptom are detected from the text unless given |
@@ -136,4 +152,4 @@ Without `--out` the report is printed. On Windows, prefer `--out` over redirecti
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): modules, database schema and migrations, the engineer loop, and testing.
 - [`CLAUDE.md`](CLAUDE.md): working notes for Claude Code sessions on this project, including how to pick up where the last session left off.
 
-Run the tests with `pytest` (107 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.
+Run the tests with `pytest` (121 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.

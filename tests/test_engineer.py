@@ -364,3 +364,37 @@ def test_log_rider_change_declined(conn, push):
     engineer.run("go")
     assert json.loads(tool_results(client.requests[1])["a"]["content"])["status"] == "not recorded"
     assert repo.list_changes(conn, bike_id=bike.id) == []
+
+
+def test_sector_analysis_tool(conn, push):
+    bike, track, fp1, _ = push  # FP1 has one lap, no sectors
+    repo.change_setup(conn, bike.id, [parse_assignment("fork.rebound=-2")], session_id=fp1.id)
+    fp2 = repo.start_session(conn, bike.id, track.id, type="FP2", date=fp1.date)
+    repo.import_laps(conn, fp2.id, [(121_388, [40_000, 41_000, 40_388], True), (121_900, [40_200, 41_100, 40_600], True)])
+    client = FakeClient([
+        reply(tool("get_sector_analysis", {}, id="s"), stop="tool_use"),
+        reply(text("ok")),
+    ])
+    Engineer(conn, client, ScriptedIO(), bike_id=bike.id, session_id=fp2.id).run("go")
+    result = json.loads(tool_results(client.requests[1])["s"]["content"])
+    assert result["compared_with"]["session_id"] == fp1.id
+    assert (result["best_lap"], result["best_vs_compared"], result["theoretical_best"]) == ("2:01.388", "-0.567", "2:01.388")
+    assert result["sectors"][2] == {"sector": 3, "best": "40.388", "best_on_lap": 1, "median": "40.494",
+                                    "median_minus_best": "+0.106", "best_vs_compared": None}
+
+
+def test_suggest_profile_update_tool(conn, push):
+    repo.set_state(conn, "rider_profile", "late braker")
+    io = ScriptedIO(answers=["not really"], confirms=[True, False])
+    engineer, client = make(conn, push, [
+        reply(tool("suggest_profile_update", {"profile": "late braker, wants a planted front over agility",
+                                              "reason": "chose stability twice"}, id="a"), stop="tool_use"),
+        reply(tool("suggest_profile_update", {"profile": "hates wheelies", "reason": "r"}, id="b"), stop="tool_use"),
+        reply(text("ok")),
+    ], io)
+    engineer.run("go")
+    assert io.proposals[0][0] == "Now: late braker"
+    assert json.loads(tool_results(client.requests[1])["a"]["content"]) == {"status": "saved"}
+    assert json.loads(tool_results(client.requests[2])["b"]["content"]) == {"status": "declined",
+                                                                           "rider_comment": "not really"}
+    assert repo.get_state(conn, "rider_profile") == "late braker, wants a planted front over agility"

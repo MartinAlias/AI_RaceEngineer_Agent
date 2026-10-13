@@ -531,6 +531,19 @@ def add_laps(
     return [lap for lap in list_laps(conn, session_id) if lap.lap_number > last]
 
 
+def import_laps(conn: sqlite3.Connection, session_id: int, laps: list[tuple[int, list[int], bool]]) -> list[Lap]:
+    """Add laps as (time_ms, sectors_ms, valid), numbered after the session's existing laps, in one transaction."""
+    get_session(conn, session_id)
+    last = conn.execute("SELECT MAX(lap_number) FROM lap WHERE session_id = ?", (session_id,)).fetchone()[0] or 0
+    with conn:
+        for offset, (time_ms, sectors_ms, valid) in enumerate(laps, start=1):
+            conn.execute(
+                "INSERT INTO lap (session_id, lap_number, time_ms, sectors_ms, valid) VALUES (?, ?, ?, ?, ?)",
+                (session_id, last + offset, time_ms, json.dumps(sectors_ms), int(valid)),
+            )
+    return [lap for lap in list_laps(conn, session_id) if lap.lap_number > last]
+
+
 def list_laps(conn: sqlite3.Connection, session_id: int) -> list[Lap]:
     rows = conn.execute("SELECT * FROM lap WHERE session_id = ? ORDER BY lap_number", (session_id,))
     return [from_row(Lap, r, ("sectors_ms",)) for r in rows]

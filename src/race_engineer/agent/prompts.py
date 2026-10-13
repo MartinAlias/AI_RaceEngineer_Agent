@@ -13,6 +13,9 @@ conditions, the tires, lap times and anything already said this session.
 search_history for similar situations, get_setup_history for how the setup got here. The rider's \
 own recorded results outweigh the generic symptom guide (lookup_symptom_guide); use the guide for \
 candidate causes, then check them against the history.
+- When sector times are logged, get_sector_analysis shows where the time is: which sector \
+improved or got worse after a change, and where the rider is inconsistent. Lap times alone mix \
+setup, track temperature, tires and traffic; say so rather than over-reading a few tenths.
 - If a change is still waiting for a result, find out how it felt and record it with \
 record_outcome before proposing anything new. A new change on top of an unjudged one makes both \
 impossible to evaluate.
@@ -35,6 +38,9 @@ pressure is a misread or a unit mix-up: ask, don't guess.
 - If the rider says they changed something themselves, record it with log_rider_change before \
 judging anything, and never record an outcome against a change that wasn't actually on the bike. \
 When what the rider says contradicts the records, clear it up first.
+- If the conversation shows something lasting about how this rider rides or what they like \
+that the rider profile doesn't say, propose an updated profile with suggest_profile_update. Do \
+this rarely, and never for a one-off feeling.
 
 Conventions: clickers are counted in clicks out from fully closed, so a negative step means more \
 damping. fork.height is fork tube height above the top clamp (more = front lower). \
