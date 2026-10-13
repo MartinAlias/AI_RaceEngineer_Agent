@@ -3,6 +3,7 @@
 ```
 re (typer CLI, cli.py)
  ├── logging commands ─────────► repo.py ─────────► SQLite (db.py migrations)
+ ├── re export ───► report.py ──► repo.py
  ├── re advise ───► advisor.py ─┬─► guide.py   (knowledge/symptoms.yaml)
  │                              ├─► ranges.py  (knowledge/ranges.yaml + per-bike overrides)
  │                              └─► history.py (FTS5 search, learned effects)
@@ -28,6 +29,7 @@ All state lives in one SQLite file. The default location is `~/.race_engineer/ra
 | `ranges.py` | Default ranges from `knowledge/ranges.yaml`, and `violations()`. |
 | `history.py` | `search()` (FTS5, filtered by track, tire and track temperature) and `learned_effects()`, which groups outcomes per (symptom, parameter, direction). |
 | `advisor.py` | Offline advice: the guide's causes turned into concrete changes from the current setup, flagged where they're out of range or the setting isn't recorded, plus the bike's track record and similar notes. |
+| `report.py` | The weekend report: `build()` gathers sessions, laps, feedback, changes and outcomes through repo; `to_markdown()` and `to_csv()` render them. |
 | `offline.py` | `is_online()`: a socket check against the API host with a 3 s timeout. |
 | `agent/prompts.py` | The system prompt. It never changes (no dates or ids in it), so it can be cached. |
 | `agent/tools.py` | Tool schemas (`TOOLS`), pydantic models that validate tool input, and `Toolbox.run()`. Errors go back to the model as `is_error` results. `RiderIO` describes how tools and the engineer talk to the rider. `propose_changes`, `log_rider_change` and `record_outcome` ask the rider to confirm; `record_hot_pressures` only announces what it saved. |

@@ -7,6 +7,7 @@ A virtual motorcycle race engineer for the terminal. Everything is stored in a l
 - **Offline advice** (`re advise`) that combines the guide with your current setup, your bike's allowed ranges and your own history.
 - **History** (`re history`): search past notes, and see which changes have worked for this bike.
 - **Outcomes** (`re outcome`): record how each change worked. This builds your bike's history.
+- **Weekend reports** (`re export`): a Markdown report of the weekend, covering sessions, laps, feedback, setup changes and their results, or a CSV of every lap for a spreadsheet.
 - **Tire pressures** (`re pressure`, `re tire target`): log hot pressures after each session, in bar or psi, and compare them with your tire maker's hot window.
 - **The AI engineer** (`re engineer`): talk a complaint through with Claude. It reads your setup, conditions and history, asks follow-up questions, and proposes at most two changes at a time. It explains each proposal, and only applies it if you accept. Offline, it queues the feedback and shows the offline advice instead.
 
@@ -82,6 +83,16 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 - **Offline:** with no connection (or if it drops mid-conversation), the feedback is queued and you get `re advise` output instead. Run `re analyze-pending` when you have signal again.
 - **Refusal fallback:** requests use Anthropic's server-side refusal fallback (`fallbacks: "default"`). If the model declines a request on safety grounds, it is retried on a fallback model.
 
+## Weekend report
+
+```powershell
+re export --out brno.md                       # the latest weekend as Markdown
+re export --format csv --out brno-laps.csv    # one row per lap, with conditions and setup id
+re export --from 2026-06-01 --to 2026-06-30   # a date range, all tracks
+```
+
+Without `--out` the report is printed. On Windows, prefer `--out` over redirecting with `>`, so the file is saved as UTF-8.
+
 ## Setup values
 
 - `key=value` sets an absolute value; `key=+N` or `key=-N` changes it relative to the current value.
@@ -116,6 +127,7 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 | `re advise [feedback id]` | offline advice for the latest (or given) feedback |
 | `re guide [symptom]` | browse the symptom guide |
 | `re history search / effects` | search past notes; what changes did for this bike |
+| `re export [--format md\|csv] [--out FILE]` | weekend report (default: the latest session's track, last 3 days); `--from`, `--to`, `--track` to choose |
 | `re bike range [param min max]` | show or set allowed setup ranges for the current bike |
 
 ## Development
@@ -124,4 +136,4 @@ setx ANTHROPIC_API_KEY sk-ant-...    # then open a new terminal
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): modules, database schema and migrations, the engineer loop, and testing.
 - [`CLAUDE.md`](CLAUDE.md): working notes for Claude Code sessions on this project, including how to pick up where the last session left off.
 
-Run the tests with `pytest` (102 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.
+Run the tests with `pytest` (107 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.

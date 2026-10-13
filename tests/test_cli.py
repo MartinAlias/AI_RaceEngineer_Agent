@@ -135,3 +135,21 @@ def test_pressures_targets_and_pit_lane_change(tmp_path):
     run(db_path, "lap", "add", "2:01.000")
     out = run(db_path, "outcome", "better")
     assert "Change #1" in out and "ran setup" not in out
+
+
+def test_export(tmp_path):
+    db_path = tmp_path / "cli6.db"
+    run(db_path, "bike", "add", "R6", "--set", "fork.rebound=10")
+    run(db_path, "track", "add", "Brno")
+    run(db_path, "session", "start", "--track", "Brno", "--type", "FP1", "--date", "2026-06-12")
+    run(db_path, "lap", "add", "2:01.955")
+    run(db_path, "setup", "set", "fork.rebound=-2", "--why", "hold the front down")
+
+    out = run(db_path, "export")
+    assert "# R6 at Brno, 2026-06-12" in out and "hold the front down" in out
+    target = tmp_path / "weekend.csv"
+    assert "Wrote 1 session(s)" in run(db_path, "export", "--format", "csv", "--out", str(target))
+    assert target.read_text(encoding="utf-8").splitlines()[1].startswith("2026-06-12,1,FP1,Brno")
+
+    result = runner.invoke(app, ["--db", str(db_path), "export", "--format", "pdf"])
+    assert result.exit_code != 0

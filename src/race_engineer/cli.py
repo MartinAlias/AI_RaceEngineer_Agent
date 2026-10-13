@@ -13,7 +13,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from . import advisor, db, guide, history, offline, repo, setup_diff, timing
+from . import advisor, db, guide, history, offline, report, repo, setup_diff, timing
 from .agent.engineer import Engineer, EngineerConfig, EngineerOffline, EngineerUnavailable, make_client
 from .models import Feedback, Setup
 
@@ -612,6 +612,31 @@ def outcome(
         remaining = len(repo.changes_without_outcome(conn, bike.id))
         if remaining:
             console.print(f"[dim]{remaining} more change(s) waiting for a result.[/dim]")
+
+
+@app.command()
+def export(
+    format: str = typer.Option("md", "--format", help="md (readable report) or csv (one row per lap)."),
+    out: Optional[Path] = typer.Option(None, "--out", help="File to write (default: print it)."),
+    date_from: Optional[str] = typer.Option(None, "--from", help="First date, YYYY-MM-DD."),
+    date_to: Optional[str] = typer.Option(None, "--to", help="Last date, YYYY-MM-DD (default: the latest session)."),
+    track: Optional[str] = typer.Option(None, help="Only this track (default: the latest session's track, "
+                                                   "unless both --from and --to are given)."),
+) -> None:
+    """Weekend report: sessions, laps, feedback, setup changes and their results."""
+    if format not in ("md", "csv"):
+        raise typer.BadParameter("format must be md or csv", param_hint="--format")
+    with _open() as conn:
+        bike = repo.current_bike(conn)
+        track_id = repo.get_track(conn, track).id if track else None
+        weekend = report.build(conn, bike.id, track_id=track_id, date_from=date_from, date_to=date_to)
+        text = report.to_markdown(weekend) if format == "md" else report.to_csv(weekend)
+    if out is None:
+        typer.echo(text, nl=False)
+        return
+    out.write_text(text, encoding="utf-8")
+    console.print(f"Wrote {len(weekend.sessions)} session(s), {weekend.date_from} to {weekend.date_to}, "
+                  f"to [bold]{escape(str(out))}[/bold]")
 
 
 def _outcome_label(o) -> str:

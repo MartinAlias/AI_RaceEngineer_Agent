@@ -283,6 +283,19 @@ def list_sessions(
     return [from_row(Session, r) for r in rows]
 
 
+def sessions_between(
+    conn: sqlite3.Connection, bike_id: int, date_from: str, date_to: str, *, track_id: int | None = None
+) -> list[Session]:
+    """A bike's sessions from date_from to date_to (inclusive, YYYY-MM-DD), oldest first."""
+    rows = conn.execute(
+        """SELECT * FROM session WHERE bike_id = :bike AND date BETWEEN :start AND :end
+             AND (:track IS NULL OR track_id = :track)
+           ORDER BY date, id""",
+        {"bike": bike_id, "start": date_from, "end": date_to, "track": track_id},
+    )
+    return [from_row(Session, r) for r in rows]
+
+
 def previous_session(conn: sqlite3.Connection, session: Session) -> Session | None:
     """The bike's session before this one (by date, then id)."""
     row = conn.execute(

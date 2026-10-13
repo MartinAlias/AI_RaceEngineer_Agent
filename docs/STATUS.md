@@ -2,7 +2,7 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-13 (dry-run fixes: hot pressures, psi, rider changes, understeer symptom). Tests: 102 passing.
+Last updated: 2026-10-13 (phase 4b: `re export`). Tests: 107 passing.
 
 ## Goal
 
@@ -36,7 +36,7 @@ Decisions made with the rider at the start:
 | 4a. `re outcome` (pulled forward before phase 3) | done | `62d8f6e` |
 | 3. AI engineer (`re engineer`, `re analyze-pending`) | done, **not yet tried against the live API** | `4c8ddce` |
 | 3a. Fixes from the engineer dry run | done | see `git log` |
-| 4b. Weekend report export (`re export`) | not started | |
+| 4b. Weekend report export (`re export`) | done | see `git log` |
 | 5. Data logger CSV import, sector analysis, rider-profile updates, other front ends | not started | |
 
 ### Phase 1: Logging foundation (done)
@@ -60,6 +60,11 @@ Decisions made with the rider at the start:
 - It computes the best-lap difference against the session the change was made after.
 - `re setup history` shows each change's result.
 
+### Phase 4b: Weekend report (done)
+- `re export` writes a Markdown report: a summary table, the starting setup, every change with its reasoning and result, and per session the conditions, tires, pressures, laps (with sectors) and feedback.
+- `--format csv` gives one row per lap, with the session's conditions and setup id.
+- The default weekend is the latest session plus the sessions at its track in the 3 days before. `--from`, `--to` and `--track` choose something else.
+
 ### Phase 3a: Fixes from the engineer dry run (done)
 On 2026-10-13 Claude Code played the engineer against a scratch database, using the real tool code. The engineer worked well (it called `get_session_context` first, asked 3 focused questions, made one in-range proposal, and refused to record an outcome when the rider's answer contradicted the records). The gaps it found are fixed:
 - **Hot pressures are session measurements** (migration v4), logged with `re pressure` or the engineer's `record_hot_pressures` tool. A hot reading that is implausible or not above the cold pressure the session ran is refused unless forced.
@@ -81,13 +86,12 @@ On 2026-10-13 Claude Code played the engineer against a scratch database, using 
 
 ## Next steps (in order)
 
-1. **Phase 4b:** `re export --format md|csv`, a weekend report covering sessions, laps, feedback, changes and results.
-2. **Phase 5:**
+1. **Phase 5:**
    - CSV import from the rider's lap timer or data logger. Ask which device and get a sample file first.
    - A sector-analysis tool for the engineer.
    - A way for the engineer to suggest updates to the rider profile.
    - Possibly a phone or web front end on the same database and modules.
-3. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
+2. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
    - Does it call `get_session_context` first?
    - Are its follow-up questions sensible, and how many does it ask?
    - Are its `propose_changes` arguments correct?
