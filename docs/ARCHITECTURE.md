@@ -4,6 +4,7 @@
 re (typer CLI, cli.py)
  ├── logging commands ─────────► repo.py ─────────► SQLite (db.py migrations)
  ├── re export ───► report.py ──► repo.py
+ ├── re web ──────► web.py ─────► repo / analysis / history
  ├── re advise ───► advisor.py ─┬─► guide.py   (knowledge/symptoms.yaml)
  │                              ├─► ranges.py  (knowledge/ranges.yaml + per-bike overrides)
  │                              └─► history.py (FTS5 search, learned effects)
@@ -30,7 +31,8 @@ All state lives in one SQLite file. The default location is `~/.race_engineer/ra
 | `history.py` | `search()` (FTS5, filtered by track, tire and track temperature) and `learned_effects()`, which groups outcomes per (symptom, parameter, direction). |
 | `advisor.py` | Offline advice: the guide's causes turned into concrete changes from the current setup, flagged where they're out of range or the setting isn't recorded, plus the bike's track record and similar notes. |
 | `lapimport.py` | Reads lap timer CSV exports: detects the delimiter, decimal comma, header row and the lap, time, sector and status columns; marks out laps and very slow laps invalid. Returns laps for `repo.import_laps`. |
-| `analysis.py` | `analyse()`: best, median and spread of valid laps, best and median per sector, theoretical best, and a comparison with another session. `default_comparison()` picks the session before the latest change. |
+| `analysis.py` | `analyse()`: best, median and spread of valid laps, best and median per sector, theoretical best, and a comparison with another session. `default_comparison()` picks the previous session if it ran the same setup, otherwise the session the change to this setup was made after. |
+| `web.py` | The read-only web page (`re web`), standard library only. `render(conn, url)` returns (status, HTML) and is what the tests call; `serve()` wraps it in a `ThreadingHTTPServer` on 127.0.0.1, opening a connection per request. All database text goes through `html.escape`. |
 | `report.py` | The weekend report: `build()` gathers sessions, laps, feedback, changes and outcomes through repo; `to_markdown()` and `to_csv()` render them. |
 | `offline.py` | `is_online()`: a socket check against the API host with a 3 s timeout. |
 | `agent/prompts.py` | The system prompt. It never changes (no dates or ids in it), so it can be cached. |

@@ -8,7 +8,8 @@ A virtual motorcycle race engineer for the terminal. Everything is stored in a l
 - **History** (`re history`): search past notes, and see which changes have worked for this bike.
 - **Outcomes** (`re outcome`): record how each change worked. This builds your bike's history.
 - **Lap timer import** (`re lap import`): bring in lap and sector times from your phone lap timer's CSV export (RaceChrono, Harry's LapTimer or similar).
-- **Sector analysis** (`re session sectors`): best and median per sector, consistency, the theoretical best lap, and a comparison with the session before the last change.
+- **Sector analysis** (`re session sectors`): best and median per sector, consistency, the theoretical best lap, and a comparison with the previous session on the same setup (or, after a change, the session before it).
+- **A web page** (`re web`): a read-only view of sessions, laps, setups and what worked, in the browser on your laptop.
 - **Weekend reports** (`re export`): a Markdown report of the weekend, covering sessions, laps, feedback, setup changes and their results, or a CSV of every lap for a spreadsheet.
 - **Tire pressures** (`re pressure`, `re tire target`): log hot pressures after each session, in bar or psi, and compare them with your tire maker's hot window.
 - **The AI engineer** (`re engineer`): talk a complaint through with Claude. It reads your setup, conditions and history, asks follow-up questions, and proposes at most two changes at a time. It explains each proposal, and only applies it if you accept. Offline, it queues the feedback and shows the offline advice instead.
@@ -97,6 +98,14 @@ re session sectors                                             # where the time 
 
 The import looks for a lap time column ("Lap time", "Laptime", "Time", "Duration"), an optional lap number, sector columns ("Sector 1", "S1", "Split 1") and a status column (out / in / pit laps are marked invalid). It copes with title lines above the header, semicolons and decimal commas, and m:ss.xxx, h:mm:ss.xxx or plain seconds. Laps more than 15% slower than the median are marked invalid (use `--keep-slow` to keep them valid). If it picks the wrong column, name them: `--time-col "Lap time" --lap-col Lap --sector-col S1 --sector-col S2`.
 
+## Web page
+
+```powershell
+re web            # then open http://127.0.0.1:8765
+```
+
+It shows your sessions, each session's laps (best lap and best sectors in bold, invalid laps greyed out), pressures, feedback and the changes made after it with their results, the setup history, and what has worked. It is read-only: log things with the CLI and refresh the page. It only listens on your own laptop (127.0.0.1), and it follows your system's light or dark mode.
+
 ## Weekend report
 
 ```powershell
@@ -143,6 +152,7 @@ Without `--out` the report is printed. On Windows, prefer `--out` over redirecti
 | `re advise [feedback id]` | offline advice for the latest (or given) feedback |
 | `re guide [symptom]` | browse the symptom guide |
 | `re history search / effects` | search past notes; what changes did for this bike |
+| `re web [--port 8765]` | read-only web page at http://127.0.0.1:8765 (Ctrl+C to stop) |
 | `re export [--format md\|csv] [--out FILE]` | weekend report (default: the latest session's track, last 3 days); `--from`, `--to`, `--track` to choose |
 | `re bike range [param min max]` | show or set allowed setup ranges for the current bike |
 
@@ -152,4 +162,4 @@ Without `--out` the report is printed. On Windows, prefer `--out` over redirecti
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): modules, database schema and migrations, the engineer loop, and testing.
 - [`CLAUDE.md`](CLAUDE.md): working notes for Claude Code sessions on this project, including how to pick up where the last session left off.
 
-Run the tests with `pytest` (121 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.
+Run the tests with `pytest` (125 tests). The engineer is tested against a scripted fake API client, so the tests make no network calls.

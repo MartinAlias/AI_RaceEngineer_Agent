@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from . import advisor, analysis, db, guide, history, lapimport, offline, report, repo, setup_diff, timing
+from . import web as web_page
 from .agent.engineer import Engineer, EngineerConfig, EngineerOffline, EngineerUnavailable, make_client
 from .models import Feedback, Setup
 
@@ -336,7 +337,8 @@ def session_show(session_id: Optional[int] = typer.Argument(None, help="Default:
 def session_sectors(
     session_id: Optional[int] = typer.Argument(None, help="Default: the active session."),
     compare: Optional[int] = typer.Option(
-        None, help="Session to compare with (default: the one before the latest change, else the previous one)."),
+        None, help="Session to compare with (default: the previous session on the same setup, else the one "
+             "before the change that made this setup)."),
 ) -> None:
     """Lap and sector analysis: best, median, consistency, theoretical best, and a comparison."""
     with _open() as conn:
@@ -716,6 +718,27 @@ def export(
     out.write_text(text, encoding="utf-8")
     console.print(f"Wrote {len(weekend.sessions)} session(s), {weekend.date_from} to {weekend.date_to}, "
                   f"to [bold]{escape(str(out))}[/bold]")
+
+
+@app.command()
+def web(
+    port: int = typer.Option(web_page.DEFAULT_PORT, help="Port on this laptop."),
+) -> None:
+    """Read-only web page of sessions, laps, setups and what worked, at http://127.0.0.1:PORT."""
+    with _open():  # creates / migrates the database before serving
+        pass
+    try:
+        server = web_page.serve(_db_path, port=port)
+    except OSError as error:
+        console.print(f"[red]Can't listen on port {port}: {escape(str(error))}. Try --port.[/red]")
+        raise typer.Exit(1) from None
+    console.print(f"Serving on [bold]http://127.0.0.1:{port}[/bold] (read-only). Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        console.print("Stopped.")
+    finally:
+        server.server_close()
 
 
 def _outcome_label(o) -> str:

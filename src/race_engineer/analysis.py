@@ -74,9 +74,12 @@ def analyse(laps: list[Lap], compare: list[Lap] | None = None) -> SessionAnalysi
 
 
 def default_comparison(conn: sqlite3.Connection, session: Session) -> Session | None:
-    """What a session is naturally compared with: the session the latest change before it
-    was made after (to judge that change), otherwise the bike's previous session."""
+    """What a session is naturally compared with: the previous session if it ran the same
+    setup; otherwise, for the first session on a new setup, the session the change was made
+    after (to judge that change); otherwise the previous session."""
     previous = repo.previous_session(conn, session)
+    if previous and previous.setup_id == session.setup_id:
+        return previous
     changes = [c for c in repo.list_changes(conn, bike_id=session.bike_id)
                if c.after_setup_id == session.setup_id and c.session_id not in (None, session.id)]
     if changes:

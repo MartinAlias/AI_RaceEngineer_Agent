@@ -43,3 +43,12 @@ def test_default_comparison(conn, weekend):
     repo.change_setup(conn, bike.id, [parse_assignment("fork.rebound=-2")], session_id=fp1.id)
     fp3 = repo.start_session(conn, bike.id, track.id, type="FP3", date=fp1.date)
     assert analysis.default_comparison(conn, fp3).id == fp1.id  # judge the change made after FP1
+
+
+def test_default_comparison_prefers_same_setup(conn, weekend):
+    bike, track, fp1 = weekend
+    repo.change_setup(conn, bike.id, [parse_assignment("fork.rebound=-2")], session_id=fp1.id)
+    fp2 = repo.start_session(conn, bike.id, track.id, type="FP2", date=fp1.date)
+    fp3 = repo.start_session(conn, bike.id, track.id, type="FP3", date=fp1.date)
+    assert analysis.default_comparison(conn, fp2).id == fp1.id  # first on the new setup: judge the change
+    assert analysis.default_comparison(conn, fp3).id == fp2.id  # same setup as FP2

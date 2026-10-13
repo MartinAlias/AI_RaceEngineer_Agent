@@ -2,7 +2,7 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-13 (phase 5: lap import, sector analysis, profile suggestions). Tests: 121 passing.
+Last updated: 2026-10-13 (phase 5b: `re web`; all phases done except the live API trial). Tests: 125 passing.
 
 ## Goal
 
@@ -38,7 +38,7 @@ Decisions made with the rider at the start:
 | 3a. Fixes from the engineer dry run | done | see `git log` |
 | 4b. Weekend report export (`re export`) | done | see `git log` |
 | 5. Lap timer CSV import, sector analysis, rider-profile updates | done | see `git log` |
-| 5b. Local web page (`re web`) | in progress | |
+| 5b. Local web page (`re web`) | done | see `git log` |
 
 ### Phase 1: Logging foundation (done)
 - SQLite database with migrations.
@@ -49,7 +49,7 @@ Decisions made with the rider at the start:
 - CLI built with typer and rich.
 
 ### Phase 2: Knowledge and history (done)
-- `knowledge/symptoms.yaml`: 21 symptoms, each with keywords, follow-up questions, causes, checks and adjustments. It is validated when loaded.
+- `knowledge/symptoms.yaml`: 22 symptoms (21 at first; `front_understeer_mid` added in 3a), each with keywords, follow-up questions, causes, checks and adjustments. It is validated when loaded.
 - Feedback is automatically tagged with a symptom from the guide.
 - `knowledge/ranges.yaml` holds default allowed ranges. Each bike can override them (`re bike range`), and setup changes outside a range are refused unless `--force` is given.
 - Full-text search (SQLite FTS5) over feedback, change reasoning and outcome notes (`re history search`).
@@ -61,9 +61,13 @@ Decisions made with the rider at the start:
 - It computes the best-lap difference against the session the change was made after.
 - `re setup history` shows each change's result.
 
+### Phase 5b: Local web page (done)
+- `re web` serves a read-only page on 127.0.0.1 (default port 8765): sessions, each session's laps with best lap and best sectors highlighted, pressures against target, feedback, changes with results, the setup history, and learned effects. Light and dark mode.
+- Standard library only (`http.server`), no new dependencies. Logging stays in the CLI.
+
 ### Phase 5: Import, sectors, profile (done)
 - `re lap import FILE`: lap and sector times from a phone lap timer's CSV (the rider uses a phone app). Built without a real sample file, so detection is generic: delimiter, decimal comma, header row, lap / time / sector / status columns, m:ss, h:mm:ss or seconds. Out laps and laps over 15% slower than the median are imported as invalid. `--dry-run`, `--append`, and explicit column names when detection fails.
-- `re session sectors` and the engineer's `get_sector_analysis` tool: best, median and spread per sector, consistency, theoretical best, compared with the session before the latest change (or the previous session).
+- `re session sectors` and the engineer's `get_sector_analysis` tool: best, median and spread per sector, consistency, theoretical best, compared with the previous session on the same setup, or for the first session on a new setup, the session the change was made after.
 - The engineer's `suggest_profile_update` tool proposes a new rider profile; the rider sees old and new and accepts or declines.
 
 ### Phase 4b: Weekend report (done)
@@ -92,14 +96,18 @@ On 2026-10-13 Claude Code played the engineer against a scratch database, using 
 
 ## Next steps (in order)
 
-1. **Phase 5b: local web page** (`re web`), read-only, on the laptop.
-2. **Get a real CSV export from the rider's phone app** (which app: RaceChrono or Harry's LapTimer?) and add it as a test fixture; adjust detection if needed.
+1. **Get a real CSV export from the rider's phone app** (which app: RaceChrono or Harry's LapTimer?) and add it as a test fixture; adjust `lapimport.py` detection if needed.
+2. **Try it at the track** (CLI, import, `re web`, `re export`) and collect what's awkward. Ideas waiting for that feedback:
+   - a lap time chart on the session page;
+   - mapping sectors to corners, so sector analysis can talk about T3 instead of S2;
+   - editing or deleting a wrongly logged lap, feedback or session.
 3. **Last: first live trial of `re engineer`** (the rider chose to leave this until the end). The rider needs an API key (`setx ANTHROPIC_API_KEY ...`). Then read the transcripts in `engineer_conversation` and tune `agent/prompts.py`. Things to check:
    - Does it call `get_session_context` first?
    - Are its follow-up questions sensible, and how many does it ask?
    - Are its `propose_changes` arguments correct?
    - Does it record outcomes for pending changes?
    - Cost per conversation (consider logging `response.usage`).
+   - Does it use the newer tools sensibly: `record_hot_pressures`, `log_rider_change`, `get_sector_analysis`, and (rarely) `suggest_profile_update`?
 
 ## Known gaps and ideas
 - **Can't edit or delete logged entries.** Laps, feedback and sessions can be added but not corrected. Feedback tags can be corrected only by the engineer, via `repo.update_feedback`.
@@ -122,5 +130,7 @@ On 2026-10-13 Claude Code played the engineer against a scratch database, using 
 - **The live API trial is the last step,** at the rider's request. Until then, prompt and tool behavior is checked by dry runs in Claude Code.
 - **Hot pressures are measurements on the session, not setup parameters** (migration v4). `tire.front_hot` / `tire.rear_hot` are no longer accepted by `re setup set`; old setups that contain them are left as they are.
 - **Pressures can be entered in psi** and are stored in bar. A bare number of 10 or more is taken as psi, since no tire runs at 10 bar.
+- **The web page is read-only** and uses only the standard library. Logging stays in the CLI, so there is one place where data is entered and validated.
+- **Lap import is generic, not per-app.** It detects columns by name rather than hard-coding one app's format, because the exact export format wasn't available. A real sample should become a test fixture.
 - **No `ask_rider` tool** (it was in the original plan). The engineer asks questions in its normal reply and the rider answers in the chat.
 - **Repo:** GitHub `MartinAlias/AI_RaceEngineer_Agent` (private). Commits are authored as `martinhorciak <martinhorciak@gmail.com>`, set in the repo's local git config.

@@ -233,8 +233,9 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Lap and sector analysis of a session: best, median and consistency of valid laps, best and "
             "median per sector with the theoretical best lap, and each sector's best compared with another "
-            "session. By default it compares with the session the latest change was made after (to judge "
-            "that change), otherwise the previous session. Sectors are only available if they were logged."
+            "session. By default it compares with the previous session if that ran the same setup; for the "
+            "first session on a new setup, with the session the change was made after (to judge that "
+            "change). Sectors are only available if they were logged."
         ),
         "input_schema": {
             "type": "object",
