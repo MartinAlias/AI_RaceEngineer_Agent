@@ -2,7 +2,38 @@
 
 **This is the single source of truth for where the project stands.** Update it at the end of every piece of work: what was done, the commit, what's next.
 
-Last updated: 2026-10-13 (phase 5b: `re web`; all phases done except the live API trial). Tests: 125 passing.
+Last updated: 2026-10-13. Tests: 125 passing.
+
+## Where we left off (2026-10-13)
+
+**Current phase: building is done (phases 1 to 5b). Next is phase 6, field testing at the track; phase 7, the live API trial, is last.**
+
+What happened in the 2026-10-13 session:
+1. **Engineer dry run without the API.** Claude Code played the engineer against a scratch database, using the real tool code, and the rider answered as themselves. The engineer behaved well. The run exposed the gaps fixed in phase 3a.
+2. **Phase 3a:** hot pressures as session measurements, tire hot targets, psi input, recording the rider's own pit-lane changes, a mid-corner understeer symptom, and prompt tuning.
+3. **Phase 4b:** `re export`, the weekend report (Markdown or CSV).
+4. **Phase 5:** `re lap import` (phone lap timer CSV), `re session sectors` and the engineer's sector tool, and engineer suggestions for the rider profile.
+5. **Phase 5b:** `re web`, a read-only page on the laptop.
+
+Decisions the rider made:
+- The live API trial (`re engineer` against Claude) comes **last**. Until then, prompt and tool behavior is checked by dry runs in Claude Code.
+- The rider uses a **phone lap timer app**, so lap import targets phone app CSV exports.
+- The front end is a **simple local web page**, not a full web app.
+
+Changes we want to make next, in order:
+1. **Real lap timer CSV.** Ask the rider which app (RaceChrono or Harry's LapTimer?) and get one export. Add it as a test fixture and fix `lapimport.py` detection if needed.
+2. **Use it at a track day** (logging, `re pressure`, `re lap import`, `re session sectors`, `re web`, `re export`) and note what's awkward.
+3. **Likely follow-ups from that** (do only what the rider confirms they want):
+   - a lap time chart on the web session page;
+   - map sectors to corners so analysis can say "T3" instead of "S2";
+   - edit or delete a wrongly logged lap, feedback or session;
+   - the rider reviews `knowledge/symptoms.yaml` against their own experience.
+4. **Live API trial** (phase 7): API key, real `re engineer` conversations, then tune `agent/prompts.py` from the transcripts.
+
+Open questions for the rider:
+- Which phone lap timer app, and can they share an export?
+- Their tire maker's hot pressure windows, to set with `re tire target`.
+- Their bike's real clicker and adjuster ranges, to set with `re bike range`.
 
 ## Goal
 
@@ -35,10 +66,12 @@ Decisions made with the rider at the start:
 | 2. Symptom guide, ranges, history search, offline advice | done | `2421a5f` |
 | 4a. `re outcome` (pulled forward before phase 3) | done | `62d8f6e` |
 | 3. AI engineer (`re engineer`, `re analyze-pending`) | done, **not yet tried against the live API** | `4c8ddce` |
-| 3a. Fixes from the engineer dry run | done | see `git log` |
-| 4b. Weekend report export (`re export`) | done | see `git log` |
-| 5. Lap timer CSV import, sector analysis, rider-profile updates | done | see `git log` |
-| 5b. Local web page (`re web`) | done | see `git log` |
+| 3a. Fixes from the engineer dry run | done | `893eb81` |
+| 4b. Weekend report export (`re export`) | done | `0d11f7b` |
+| 5. Lap timer CSV import, sector analysis, rider-profile updates | done | `a709eef` |
+| 5b. Local web page (`re web`) | done | `da805a2` |
+| **6. Field testing: real lap timer CSV, track-day use, follow-up fixes** | **next** | |
+| 7. Live API trial of `re engineer` and prompt tuning | last, by the rider's choice | |
 
 ### Phase 1: Logging foundation (done)
 - SQLite database with migrations.
@@ -61,19 +94,14 @@ Decisions made with the rider at the start:
 - It computes the best-lap difference against the session the change was made after.
 - `re setup history` shows each change's result.
 
-### Phase 5b: Local web page (done)
-- `re web` serves a read-only page on 127.0.0.1 (default port 8765): sessions, each session's laps with best lap and best sectors highlighted, pressures against target, feedback, changes with results, the setup history, and learned effects. Light and dark mode.
-- Standard library only (`http.server`), no new dependencies. Logging stays in the CLI.
-
-### Phase 5: Import, sectors, profile (done)
-- `re lap import FILE`: lap and sector times from a phone lap timer's CSV (the rider uses a phone app). Built without a real sample file, so detection is generic: delimiter, decimal comma, header row, lap / time / sector / status columns, m:ss, h:mm:ss or seconds. Out laps and laps over 15% slower than the median are imported as invalid. `--dry-run`, `--append`, and explicit column names when detection fails.
-- `re session sectors` and the engineer's `get_sector_analysis` tool: best, median and spread per sector, consistency, theoretical best, compared with the previous session on the same setup, or for the first session on a new setup, the session the change was made after.
-- The engineer's `suggest_profile_update` tool proposes a new rider profile; the rider sees old and new and accepts or declines.
-
-### Phase 4b: Weekend report (done)
-- `re export` writes a Markdown report: a summary table, the starting setup, every change with its reasoning and result, and per session the conditions, tires, pressures, laps (with sectors) and feedback.
-- `--format csv` gives one row per lap, with the session's conditions and setup id.
-- The default weekend is the latest session plus the sessions at its track in the 3 days before. `--from`, `--to` and `--track` choose something else.
+### Phase 3: AI engineer (done, needs a live trial)
+- `re engineer` runs a Claude tool-use loop with the rider in the terminal (`src/race_engineer/agent/`).
+- Tools: session context, setup history, history search, learned effects, the symptom guide, updating feedback tags, `propose_changes` and `record_outcome`.
+  - `propose_changes` allows at most 2 changes. They are checked against ranges and applied only if the rider says y.
+  - `record_outcome` asks the rider to confirm before saving.
+- Offline, or if the connection drops, the feedback is queued and the offline advice is shown. `re analyze-pending` works through the queue.
+- Each conversation is saved in the `engineer_conversation` table.
+- Tested against a scripted fake client (`tests/test_engineer.py`). **No API key is set on the dev machine, so the engineer has not yet talked to the real API.**
 
 ### Phase 3a: Fixes from the engineer dry run (done)
 On 2026-10-13 Claude Code played the engineer against a scratch database, using the real tool code. The engineer worked well (it called `get_session_context` first, asked 3 focused questions, made one in-range proposal, and refused to record an outcome when the rider's answer contradicted the records). The gaps it found are fixed:
@@ -85,16 +113,23 @@ On 2026-10-13 Claude Code played the engineer against a scratch database, using 
 - **Change dates:** the engineer sees the date and type of the session a change followed, not the time it was typed in.
 - **Prompt:** one change when one cause clearly leads; pressure, psi and rider-change guidance; clear up contradictions before recording anything.
 
-### Phase 3: AI engineer (done, needs a live trial)
-- `re engineer` runs a Claude tool-use loop with the rider in the terminal (`src/race_engineer/agent/`).
-- Tools: session context, setup history, history search, learned effects, the symptom guide, updating feedback tags, `propose_changes` and `record_outcome`.
-  - `propose_changes` allows at most 2 changes. They are checked against ranges and applied only if the rider says y.
-  - `record_outcome` asks the rider to confirm before saving.
-- Offline, or if the connection drops, the feedback is queued and the offline advice is shown. `re analyze-pending` works through the queue.
-- Each conversation is saved in the `engineer_conversation` table.
-- Tested against a scripted fake client (`tests/test_engineer.py`). **No API key is set on the dev machine, so the engineer has not yet talked to the real API.**
+### Phase 4b: Weekend report (done)
+- `re export` writes a Markdown report: a summary table, the starting setup, every change with its reasoning and result, and per session the conditions, tires, pressures, laps (with sectors) and feedback.
+- `--format csv` gives one row per lap, with the session's conditions and setup id.
+- The default weekend is the latest session plus the sessions at its track in the 3 days before. `--from`, `--to` and `--track` choose something else.
+
+### Phase 5: Import, sectors, profile (done)
+- `re lap import FILE`: lap and sector times from a phone lap timer's CSV (the rider uses a phone app). Built without a real sample file, so detection is generic: delimiter, decimal comma, header row, lap / time / sector / status columns, m:ss, h:mm:ss or seconds. Out laps and laps over 15% slower than the median are imported as invalid. `--dry-run`, `--append`, and explicit column names when detection fails.
+- `re session sectors` and the engineer's `get_sector_analysis` tool: best, median and spread per sector, consistency, theoretical best, compared with the previous session on the same setup, or for the first session on a new setup, the session the change was made after.
+- The engineer's `suggest_profile_update` tool proposes a new rider profile; the rider sees old and new and accepts or declines.
+
+### Phase 5b: Local web page (done)
+- `re web` serves a read-only page on 127.0.0.1 (default port 8765): sessions, each session's laps with best lap and best sectors highlighted, pressures against target, feedback, changes with results, the setup history, and learned effects. Light and dark mode.
+- Standard library only (`http.server`), no new dependencies. Logging stays in the CLI.
 
 ## Next steps (in order)
+
+These are phase 6 and phase 7; "Where we left off" above has the short version.
 
 1. **Get a real CSV export from the rider's phone app** (which app: RaceChrono or Harry's LapTimer?) and add it as a test fixture; adjust `lapimport.py` detection if needed.
 2. **Try it at the track** (CLI, import, `re web`, `re export`) and collect what's awkward. Ideas waiting for that feedback:
